@@ -100,7 +100,14 @@ function buildContentPack(doll, storyData) {
   const teaser = storyData.teaser || `Meet ${name}, a one-of-a-kind doll with a gentle story to tell.`;
 
   return {
-    caption: `${name} ✨\n${intro}\n\n${teaser}\n\nDiscover ${name}'s world: ${PUBLIC_BASE_URL}/doll/${slugify(name)}\n\n#MailleEtMerveille #DollWithAStory #HandmadeDoll`,
+    caption: `${name} ✨
+${intro}
+
+${teaser}
+
+Discover ${name}'s world: ${PUBLIC_BASE_URL}/doll/${slugify(name)}
+
+#MailleEtMerveille #DollWithAStory #HandmadeDoll`,
     hook: `Meet ${name}, a one-of-a-kind doll from the ${theme} world.`,
     blurb: `${name} is a handmade doll created to bring story, warmth, and imagination into everyday moments. ${hook}`,
     cta: `Discover ${name}'s world`,
@@ -140,11 +147,11 @@ export default function Page() {
   });
 
   const [order, setOrder] = useState({
-  customer_name: "",
-  contact_info: "",
-  notes: "",
-  order_status: "new",
-});
+    customer_name: "",
+    contact_info: "",
+    notes: "",
+    order_status: "new",
+  });
 
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
@@ -183,6 +190,7 @@ export default function Page() {
   async function loadDetails(dollId) {
     if (!dollId) return;
     setError("");
+
     const doll = dolls.find((d) => d.id === dollId);
     if (doll) {
       setIdentity({
@@ -203,6 +211,7 @@ export default function Page() {
     const teaser = (stories || []).find((s) => s.type === "teaser")?.content || "";
     const mainStory = (stories || []).find((s) => s.type === "main")?.content || "";
     const minis = (stories || []).filter((s) => s.type === "mini");
+
     setStory({
       teaser,
       mainStory,
@@ -221,44 +230,48 @@ export default function Page() {
     const cta = (contentRows || []).find((c) => c.type === "cta")?.content || "";
 
     setContentPack({ caption, hook, blurb, cta });
+
+    const { data: orders } = await supabase
+      .from("orders")
+      .select("*")
+      .eq("doll_id", dollId)
+      .limit(1);
+
+    if (orders && orders.length > 0) {
+      setOrder({
+        customer_name: orders[0].customer_name || "",
+        contact_info: orders[0].contact_info || "",
+        notes: orders[0].notes || "",
+        order_status: orders[0].order_status || "new",
+      });
+    } else {
+      setOrder({
+        customer_name: "",
+        contact_info: "",
+        notes: "",
+        order_status: "new",
+      });
+    }
   }
 
-  const { data: orders } = await supabase
-  .from("orders")
-  .select("*")
-  .eq("doll_id", dollId)
-  .limit(1);
-
-if (orders && orders.length > 0) {
-  setOrder({
-    customer_name: orders[0].customer_name || "",
-    contact_info: orders[0].contact_info || "",
-    notes: orders[0].notes || "",
-    order_status: orders[0].order_status || "new",
-  });
-} else {
-  setOrder({
-    customer_name: "",
-    contact_info: "",
-    notes: "",
-    order_status: "new",
-  });
-}
-  
   useEffect(() => {
     loadThemes();
     loadDolls();
   }, []);
 
   useEffect(() => {
-    if (selected) loadDetails(selected.id);
+    if (selected) {
+      loadDetails(selected.id);
+    }
   }, [selectedId, dolls.length]);
 
   async function createDoll() {
     setError("");
     setNotice("");
+
     const count = dolls.length + 1;
     const computedName = newDollName || `DOLL-${String(count).padStart(3, "0")}`;
+
     const payload = {
       internal_id: `DOLL-${String(count).padStart(3, "0")}`,
       name: computedName,
@@ -269,15 +282,18 @@ if (orders && orders.length > 0) {
       sales_status: "not_sold",
       slug: slugify(computedName),
     };
+
     const { data, error } = await supabase.from("dolls").insert(payload).select().single();
     if (error) {
       setError(error.message);
       return;
     }
+
     const next = {
       ...data,
       theme_name: data.theme_name || "Unassigned",
     };
+
     setDolls((prev) => [...prev, next]);
     setSelectedId(next.id);
     setNewDollName("");
@@ -288,8 +304,10 @@ if (orders && orders.length > 0) {
 
   async function saveIdentity() {
     if (!selected) return;
+
     setError("");
     setNotice("");
+
     const patch = {
       name: identity.name,
       theme_name: identity.theme_name,
@@ -299,11 +317,13 @@ if (orders && orders.length > 0) {
       slug: slugify(identity.name || selected.internal_id),
       status: selected.status === "new" ? "identity" : selected.status,
     };
+
     const { error } = await supabase.from("dolls").update(patch).eq("id", selected.id);
     if (error) {
       setError(error.message);
       return;
     }
+
     setDolls((prev) =>
       prev.map((d) => (d.id === selected.id ? { ...d, ...patch } : d))
     );
@@ -312,6 +332,7 @@ if (orders && orders.length > 0) {
 
   async function saveStory() {
     if (!selected) return;
+
     setError("");
     setNotice("");
 
@@ -349,6 +370,7 @@ if (orders && orders.length > 0) {
   function applyTone(tone) {
     setStoryTone(tone);
     if (!selected) return;
+
     const pack = buildStoryPack({ ...selected, ...identity }, tone);
     setStory({
       teaser: pack.teaser,
@@ -361,19 +383,23 @@ if (orders && orders.length > 0) {
 
   async function advanceStage() {
     if (!selected) return;
+
     const idx = STATUSES.indexOf(selected.status || "new");
     const next = STATUSES[Math.min(idx + 1, STATUSES.length - 1)];
+
     const { error } = await supabase.from("dolls").update({ status: next }).eq("id", selected.id);
     if (error) {
       setError(error.message);
       return;
     }
+
     setDolls((prev) => prev.map((d) => (d.id === selected.id ? { ...d, status: next } : d)));
     setNotice(`Advanced to ${statusLabel(next)}.`);
   }
 
   function generateDraft() {
     if (!selected) return;
+
     const pack = buildStoryPack({ ...selected, ...identity }, storyTone);
     setStory({
       teaser: pack.teaser,
@@ -386,6 +412,7 @@ if (orders && orders.length > 0) {
 
   async function activateDigitalLayer() {
     if (!selected) return;
+
     const nextSlug = slugify(identity.name || selected.name || selected.internal_id);
     const { error } = await supabase
       .from("dolls")
@@ -407,6 +434,7 @@ if (orders && orders.length > 0) {
 
   function generateContentPack() {
     if (!selected) return;
+
     const pack = buildContentPack({ ...selected, ...identity }, story);
     setContentPack(pack);
     setNotice("Content pack generated.");
@@ -414,6 +442,7 @@ if (orders && orders.length > 0) {
 
   async function saveContentPack() {
     if (!selected) return;
+
     setError("");
     setNotice("");
 
@@ -480,35 +509,50 @@ if (orders && orders.length > 0) {
     setNotice("Content pack saved.");
   }
 
-async function saveOrder() {
-  if (!selected) return;
+  async function saveOrder() {
+    if (!selected) return;
 
-  await supabase.from("orders").delete().eq("doll_id", selected.id);
+    setError("");
+    setNotice("");
 
-  const { error } = await supabase.from("orders").insert({
-    doll_id: selected.id,
-    customer_name: order.customer_name,
-    contact_info: order.contact_info,
-    notes: order.notes,
-    order_status: order.order_status,
-  });
+    await supabase.from("orders").delete().eq("doll_id", selected.id);
 
-  if (error) {
-    setError(error.message);
-    return;
+    const { error } = await supabase.from("orders").insert({
+      doll_id: selected.id,
+      customer_name: order.customer_name,
+      contact_info: order.contact_info,
+      notes: order.notes,
+      order_status: order.order_status,
+    });
+
+    if (error) {
+      setError(error.message);
+      return;
+    }
+
+    await supabase
+      .from("dolls")
+      .update({
+        sales_status: order.order_status === "delivered" ? "sold" : "reserved",
+        status: "sales",
+      })
+      .eq("id", selected.id);
+
+    setDolls((prev) =>
+      prev.map((d) =>
+        d.id === selected.id
+          ? {
+              ...d,
+              sales_status: order.order_status === "delivered" ? "sold" : "reserved",
+              status: "sales",
+            }
+          : d
+      )
+    );
+
+    setNotice("Order saved.");
   }
 
-  await supabase
-    .from("dolls")
-    .update({
-      sales_status: order.order_status === "delivered" ? "sold" : "reserved",
-      status: "sales",
-    })
-    .eq("id", selected.id);
-
-  setNotice("Order saved.");
-}
-  
   async function copyToClipboard(value, successMessage) {
     try {
       await navigator.clipboard.writeText(value);
@@ -528,8 +572,14 @@ async function saveOrder() {
   return (
     <main style={{ background: "#f6f7fb", minHeight: "100vh", padding: 32, fontFamily: "Inter, Arial, sans-serif", color: "#0f172a" }}>
       <div style={{ maxWidth: 1220, margin: "0 auto" }}>
-        <div style={{ letterSpacing: 3, fontSize: 14, color: "#64748b", marginBottom: 8 }}>MAILLE & MERVEILLE</div>
-        <h1 style={{ fontSize: 50, margin: 0, lineHeight: 1.05 }}>Doll Lifecycle System</h1>
+        <div style={{ letterSpacing: 3, fontSize: 14, color: "#64748b", marginBottom: 8 }}>
+          MAILLE & MERVEILLE
+        </div>
+
+        <h1 style={{ fontSize: 50, margin: 0, lineHeight: 1.05 }}>
+          Doll Lifecycle System
+        </h1>
+
         <p style={{ fontSize: 18, color: "#475569", maxWidth: 860, marginTop: 12 }}>
           A full internal pipeline that transforms every handmade doll into a character, a living digital story asset, and a scalable brand node.
         </p>
@@ -565,17 +615,17 @@ async function saveOrder() {
             <h2 style={{ marginTop: 0, fontSize: 24 }}>Pipeline Control</h2>
 
             <div style={{ marginTop: 20 }}>
-              <label style={{ display: "block", fontSize: 14, color: "#475569", marginBottom: 8 }}>Doll name or temporary label</label>
+              <label style={labelStyle}>Doll name or temporary label</label>
               <input value={newDollName} onChange={(e) => setNewDollName(e.target.value)} style={inputStyle} />
             </div>
 
             <div style={{ marginTop: 16 }}>
-              <label style={{ display: "block", fontSize: 14, color: "#475569", marginBottom: 8 }}>Artist name</label>
+              <label style={labelStyle}>Artist name</label>
               <input value={newArtistName} onChange={(e) => setNewArtistName(e.target.value)} style={inputStyle} />
             </div>
 
             <div style={{ marginTop: 16 }}>
-              <label style={{ display: "block", fontSize: 14, color: "#475569", marginBottom: 8 }}>Theme</label>
+              <label style={labelStyle}>Theme</label>
               <select value={newTheme} onChange={(e) => setNewTheme(e.target.value)} style={inputStyle}>
                 {themes.map((theme) => (
                   <option key={theme} value={theme}>
@@ -609,16 +659,23 @@ async function saveOrder() {
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start" }}>
                       <div>
                         <div style={{ fontWeight: 700, fontSize: 18 }}>{d.name}</div>
-                        <div style={{ color: "#64748b", marginTop: 4 }}>{d.internal_id} · {d.theme_name || "Unassigned"}</div>
+                        <div style={{ color: "#64748b", marginTop: 4 }}>
+                          {d.internal_id} · {d.theme_name || "Unassigned"}
+                        </div>
                       </div>
+
                       <div style={{ background: "#eef2ff", color: "#0f172a", borderRadius: 999, padding: "6px 12px", fontSize: 14 }}>
                         {statusLabel(d.status)}
                       </div>
                     </div>
+
                     <div style={{ marginTop: 14, height: 8, background: "#e2e8f0", borderRadius: 999 }}>
                       <div style={{ width: `${progressFromStatus(d.status)}%`, height: "100%", background: "#0f172a", borderRadius: 999 }} />
                     </div>
-                    <div style={{ marginTop: 8, color: "#64748b", fontSize: 14 }}>{progressFromStatus(d.status)}% through lifecycle</div>
+
+                    <div style={{ marginTop: 8, color: "#64748b", fontSize: 14 }}>
+                      {progressFromStatus(d.status)}% through lifecycle
+                    </div>
                   </button>
                 ))}
               </div>
@@ -631,15 +688,21 @@ async function saveOrder() {
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "start" }}>
                   <div>
                     <h2 style={{ margin: 0, fontSize: 28 }}>{selected.name}</h2>
-                    <div style={{ color: "#64748b", marginTop: 6 }}>{selected.internal_id} · {identity.theme_name || "Unassigned"}</div>
+                    <div style={{ color: "#64748b", marginTop: 6 }}>
+                      {selected.internal_id} · {identity.theme_name || "Unassigned"}
+                    </div>
                   </div>
+
                   <div style={{ display: "flex", gap: 12 }}>
                     <button onClick={generateDraft} style={secondaryButton}>Generate Draft</button>
                     <button onClick={advanceStage} style={primaryButton}>Advance Stage</button>
                   </div>
                 </div>
 
-                <div style={{ marginTop: 14, color: "#475569" }}>Lifecycle progress: {progressFromStatus(selected.status)}%</div>
+                <div style={{ marginTop: 14, color: "#475569" }}>
+                  Lifecycle progress: {progressFromStatus(selected.status)}%
+                </div>
+
                 <div style={{ marginTop: 8, height: 8, background: "#e2e8f0", borderRadius: 999 }}>
                   <div style={{ width: `${progressFromStatus(selected.status)}%`, height: "100%", background: "#0f172a", borderRadius: 999 }} />
                 </div>
@@ -671,6 +734,7 @@ async function saveOrder() {
                         <label style={labelStyle}>Name</label>
                         <input value={identity.name} onChange={(e) => setIdentity({ ...identity, name: e.target.value })} style={inputStyle} />
                       </div>
+
                       <div>
                         <label style={labelStyle}>Theme</label>
                         <select value={identity.theme_name} onChange={(e) => setIdentity({ ...identity, theme_name: e.target.value })} style={inputStyle}>
@@ -679,10 +743,12 @@ async function saveOrder() {
                           ))}
                         </select>
                       </div>
+
                       <div>
                         <label style={labelStyle}>Personality traits</label>
                         <input value={identity.personality_traits} onChange={(e) => setIdentity({ ...identity, personality_traits: e.target.value })} style={inputStyle} />
                       </div>
+
                       <div>
                         <label style={labelStyle}>Emotional hook</label>
                         <input value={identity.emotional_hook} onChange={(e) => setIdentity({ ...identity, emotional_hook: e.target.value })} style={inputStyle} />
@@ -702,19 +768,20 @@ async function saveOrder() {
                       <button onClick={saveIdentity} style={primaryButton}>Save Identity</button>
                     </div>
                   </div>
-                ) : null}
-
-                {activeTab === "story" ? (
+                ) : activeTab === "story" ? (
                   <div style={{ marginTop: 24 }}>
                     <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 20, padding: 16, marginBottom: 20 }}>
                       <div style={{ fontWeight: 700, marginBottom: 12 }}>Story Engine v2</div>
+
                       <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
                         <label style={{ color: "#475569" }}>Tone</label>
+
                         <select value={storyTone} onChange={(e) => setStoryTone(e.target.value)} style={{ ...inputStyle, width: 180 }}>
                           {STORY_TONES.map((tone) => (
                             <option key={tone} value={tone}>{tone}</option>
                           ))}
                         </select>
+
                         <button onClick={() => applyTone("Gentle")} style={secondaryButton}>Gentle</button>
                         <button onClick={() => applyTone("Playful")} style={secondaryButton}>Playful</button>
                         <button onClick={() => applyTone("Magical")} style={secondaryButton}>Magical</button>
@@ -737,6 +804,7 @@ async function saveOrder() {
                         <label style={labelStyle}>Mini story 1</label>
                         <textarea value={story.mini1} onChange={(e) => setStory({ ...story, mini1: e.target.value })} style={{ ...inputStyle, minHeight: 120 }} />
                       </div>
+
                       <div>
                         <label style={labelStyle}>Mini story 2</label>
                         <textarea value={story.mini2} onChange={(e) => setStory({ ...story, mini2: e.target.value })} style={{ ...inputStyle, minHeight: 120 }} />
@@ -747,18 +815,13 @@ async function saveOrder() {
                       <button onClick={saveStory} style={primaryButton}>Save Story</button>
                     </div>
                   </div>
-                ) : null}
-
-                {activeTab === "digital" ? (
+                ) : activeTab === "digital" ? (
                   <div style={{ marginTop: 24, display: "grid", gap: 20 }}>
                     <div style={digitalCardStyle}>
                       <div style={sectionLabelStyle}>Slug</div>
                       <div style={slugRowStyle}>
                         <code style={slugCodeStyle}>{selectedSlug || "no-slug-yet"}</code>
-                        <button
-                          onClick={() => copyToClipboard(selectedSlug, "Slug copied.")}
-                          style={secondaryButton}
-                        >
+                        <button onClick={() => copyToClipboard(selectedSlug, "Slug copied.")} style={secondaryButton}>
                           Copy Slug
                         </button>
                       </div>
@@ -769,18 +832,10 @@ async function saveOrder() {
                       <div style={{ display: "grid", gap: 12 }}>
                         <code style={urlCodeStyle}>{publicPath || "/doll/your-doll-slug"}</code>
                         <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-                          <button
-                            onClick={() => window.open(publicUrl, "_blank")}
-                            style={primaryButton}
-                            disabled={!publicUrl}
-                          >
+                          <button onClick={() => window.open(publicUrl, "_blank")} style={primaryButton} disabled={!publicUrl}>
                             Open Public Page
                           </button>
-                          <button
-                            onClick={() => copyToClipboard(publicUrl, "Public URL copied.")}
-                            style={secondaryButton}
-                            disabled={!publicUrl}
-                          >
+                          <button onClick={() => copyToClipboard(publicUrl, "Public URL copied.")} style={secondaryButton} disabled={!publicUrl}>
                             Copy URL
                           </button>
                         </div>
@@ -817,9 +872,7 @@ async function saveOrder() {
                       </div>
                     </div>
                   </div>
-                ) : null}
-
-                {activeTab === "content" ? (
+                ) : activeTab === "content" ? (
                   <div style={{ marginTop: 24, display: "grid", gap: 20 }}>
                     <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
                       <button onClick={generateContentPack} style={primaryButton}>Generate Content Pack</button>
@@ -864,11 +917,8 @@ async function saveOrder() {
                       />
                     </div>
                   </div>
-                ) : null}
-
-                {activeTab === "sales" ? (
+                ) : activeTab === "sales" ? (
                   <div style={{ marginTop: 24, display: "grid", gap: 20 }}>
-                    
                     <div style={contentCardStyle}>
                       <div style={sectionLabelStyle}>Customer Name</div>
                       <input
@@ -877,7 +927,7 @@ async function saveOrder() {
                         style={inputStyle}
                       />
                     </div>
-                
+
                     <div style={contentCardStyle}>
                       <div style={sectionLabelStyle}>Contact Info</div>
                       <input
@@ -886,7 +936,7 @@ async function saveOrder() {
                         style={inputStyle}
                       />
                     </div>
-                
+
                     <div style={contentCardStyle}>
                       <div style={sectionLabelStyle}>Order Status</div>
                       <select
@@ -900,7 +950,7 @@ async function saveOrder() {
                         <option value="delivered">Delivered</option>
                       </select>
                     </div>
-                
+
                     <div style={contentCardStyle}>
                       <div style={sectionLabelStyle}>Notes</div>
                       <textarea
@@ -909,16 +959,20 @@ async function saveOrder() {
                         style={{ ...inputStyle, minHeight: 120 }}
                       />
                     </div>
-                
+
                     <button onClick={saveOrder} style={primaryButton}>
                       Save Order
                     </button>
                   </div>
-                ) : activeTab !== "identity" && activeTab !== "story" && activeTab !== "digital" && activeTab !== "content" ? (
+                ) : activeTab === "live" ? (
                   <div style={{ marginTop: 24, padding: 20, border: "1px dashed #cbd5e1", borderRadius: 18, color: "#64748b" }}>
-                    {statusLabel(activeTab)} module is ready for the next build step.
+                    Live module is ready for the next build step.
                   </div>
                 ) : null}
+              </>
+            ) : (
+              <div style={{ color: "#64748b" }}>Create your first doll to begin.</div>
+            )}
           </section>
         </div>
       </div>
@@ -1056,4 +1110,3 @@ const contentGridStyle = {
   gridTemplateColumns: "1fr 1fr",
   gap: 20,
 };
-
