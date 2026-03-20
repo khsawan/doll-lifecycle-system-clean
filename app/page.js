@@ -6,6 +6,7 @@ import { supabase } from "../lib/supabase";
 const DEFAULT_THEMES = ["Unassigned", "Nature Friends", "Little Dreamers", "Cozy World"];
 const STATUSES = ["new", "identity", "story", "digital", "content", "sales", "live"];
 const STORY_TONES = ["Gentle", "Playful", "Magical"];
+const PUBLIC_BASE_URL = "https://doll-lifecycle-system-2.vercel.app";
 
 function slugify(value) {
   return (value || "")
@@ -125,6 +126,10 @@ export default function Page() {
     [dolls, selectedId]
   );
 
+  const selectedSlug = slugify(identity.name || selected?.name || selected?.internal_id || "");
+  const publicPath = selectedSlug ? `/doll/${selectedSlug}` : "";
+  const publicUrl = selectedSlug ? `${PUBLIC_BASE_URL}${publicPath}` : "";
+
   async function loadThemes() {
     const { data } = await supabase.from("themes").select("name").order("name");
     const dbThemes = (data || []).map((x) => x.name).filter(Boolean);
@@ -190,15 +195,16 @@ export default function Page() {
     setError("");
     setNotice("");
     const count = dolls.length + 1;
+    const computedName = newDollName || `DOLL-${String(count).padStart(3, "0")}`;
     const payload = {
       internal_id: `DOLL-${String(count).padStart(3, "0")}`,
-      name: newDollName || `DOLL-${String(count).padStart(3, "0")}`,
+      name: computedName,
       artist_name: newArtistName || null,
       theme_name: newTheme || "Unassigned",
       status: "new",
       availability_status: "available",
       sales_status: "not_sold",
-      slug: slugify(newDollName || `DOLL-${String(count).padStart(3, "0")}`),
+      slug: slugify(computedName),
     };
     const { data, error } = await supabase.from("dolls").insert(payload).select().single();
     if (error) {
@@ -313,6 +319,36 @@ export default function Page() {
       mini2: pack.mini2,
     });
     setNotice("Draft generated.");
+  }
+
+  async function activateDigitalLayer() {
+    if (!selected) return;
+    const nextSlug = slugify(identity.name || selected.name || selected.internal_id);
+    const { error } = await supabase
+      .from("dolls")
+      .update({ slug: nextSlug, status: "digital" })
+      .eq("id", selected.id);
+
+    if (error) {
+      setError(error.message);
+      return;
+    }
+
+    setDolls((prev) =>
+      prev.map((d) =>
+        d.id === selected.id ? { ...d, slug: nextSlug, status: "digital" } : d
+      )
+    );
+    setNotice("Digital layer activated.");
+  }
+
+  async function copyToClipboard(value, successMessage) {
+    try {
+      await navigator.clipboard.writeText(value);
+      setNotice(successMessage);
+    } catch {
+      setError("Clipboard copy failed.");
+    }
   }
 
   const metrics = {
@@ -546,7 +582,77 @@ export default function Page() {
                   </div>
                 ) : null}
 
-                {activeTab !== "identity" && activeTab !== "story" ? (
+                {activeTab === "digital" ? (
+                  <div style={{ marginTop: 24, display: "grid", gap: 20 }}>
+                    <div style={digitalCardStyle}>
+                      <div style={sectionLabelStyle}>Slug</div>
+                      <div style={slugRowStyle}>
+                        <code style={slugCodeStyle}>{selectedSlug || "no-slug-yet"}</code>
+                        <button
+                          onClick={() => copyToClipboard(selectedSlug, "Slug copied.")}
+                          style={secondaryButton}
+                        >
+                          Copy Slug
+                        </button>
+                      </div>
+                    </div>
+
+                    <div style={digitalCardStyle}>
+                      <div style={sectionLabelStyle}>Public Page</div>
+                      <div style={{ display: "grid", gap: 12 }}>
+                        <code style={urlCodeStyle}>{publicPath || "/doll/your-doll-slug"}</code>
+                        <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                          <button
+                            onClick={() => window.open(publicUrl, "_blank")}
+                            style={primaryButton}
+                            disabled={!publicUrl}
+                          >
+                            Open Public Page
+                          </button>
+                          <button
+                            onClick={() => copyToClipboard(publicUrl, "Public URL copied.")}
+                            style={secondaryButton}
+                            disabled={!publicUrl}
+                          >
+                            Copy URL
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div style={digitalGridStyle}>
+                      <div style={digitalCardStyle}>
+                        <div style={sectionLabelStyle}>QR Destination</div>
+                        <p style={mutedTextStyle}>
+                          This doll is now ready to point a printed QR code to its live story page.
+                        </p>
+                        <div style={qrPlaceholderStyle}>
+                          <div style={{ fontWeight: 700, marginBottom: 6 }}>QR Placeholder</div>
+                          <div style={{ fontSize: 14, color: "#64748b" }}>
+                            Future QR image generation will appear here.
+                          </div>
+                        </div>
+                        <button onClick={activateDigitalLayer} style={primaryButton}>
+                          Activate Digital Layer
+                        </button>
+                      </div>
+
+                      <div style={digitalCardStyle}>
+                        <div style={sectionLabelStyle}>Visual Block</div>
+                        <div style={visualPlaceholderStyle}>
+                          <div>
+                            <div style={{ fontWeight: 700, marginBottom: 6 }}>Image Placeholder</div>
+                            <div style={{ fontSize: 14, color: "#64748b" }}>
+                              Future doll image / illustration / product visual
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+
+                {activeTab !== "identity" && activeTab !== "story" && activeTab !== "digital" ? (
                   <div style={{ marginTop: 24, padding: 20, border: "1px dashed #cbd5e1", borderRadius: 18, color: "#64748b" }}>
                     {statusLabel(activeTab)} module is ready for the next build step.
                   </div>
@@ -598,4 +704,84 @@ const secondaryButton = {
   padding: "14px 18px",
   fontSize: 16,
   cursor: "pointer",
+};
+
+const digitalCardStyle = {
+  background: "#ffffff",
+  border: "1px solid #e5e7eb",
+  borderRadius: 22,
+  padding: 20,
+};
+
+const slugRowStyle = {
+  display: "flex",
+  gap: 12,
+  alignItems: "center",
+  flexWrap: "wrap",
+};
+
+const slugCodeStyle = {
+  display: "inline-block",
+  background: "#f8fafc",
+  border: "1px solid #cbd5e1",
+  borderRadius: 14,
+  padding: "12px 14px",
+  fontSize: 16,
+};
+
+const urlCodeStyle = {
+  display: "block",
+  background: "#f8fafc",
+  border: "1px solid #cbd5e1",
+  borderRadius: 14,
+  padding: "12px 14px",
+  fontSize: 15,
+  overflowWrap: "anywhere",
+};
+
+const digitalGridStyle = {
+  display: "grid",
+  gridTemplateColumns: "1fr 1fr",
+  gap: 20,
+};
+
+const qrPlaceholderStyle = {
+  margin: "14px 0 18px",
+  border: "1px dashed #cbd5e1",
+  borderRadius: 18,
+  minHeight: 170,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  textAlign: "center",
+  background: "#f8fafc",
+  padding: 20,
+};
+
+const visualPlaceholderStyle = {
+  border: "1px dashed #cbd5e1",
+  borderRadius: 18,
+  minHeight: 220,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  textAlign: "center",
+  background: "linear-gradient(135deg, #f5efe6 0%, #f1f5f9 100%)",
+  padding: 20,
+};
+
+const sectionLabelStyle = {
+  fontSize: 13,
+  textTransform: "uppercase",
+  letterSpacing: "0.12em",
+  color: "#94a3b8",
+  marginBottom: 12,
+  fontWeight: 700,
+};
+
+const mutedTextStyle = {
+  color: "#64748b",
+  lineHeight: 1.7,
+  fontSize: 15,
+  margin: 0,
 };
