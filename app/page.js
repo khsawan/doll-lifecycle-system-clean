@@ -92,6 +92,21 @@ function buildStoryPack(doll, tone) {
   };
 }
 
+function buildContentPack(doll, storyData) {
+  const name = doll.name || "This doll";
+  const theme = doll.theme_name || "Unassigned";
+  const hook = doll.emotional_hook || `${name} brings warmth and wonder wherever she goes`;
+  const intro = doll.short_intro || `${name} is a one-of-a-kind handmade doll with a story.`;
+  const teaser = storyData.teaser || `Meet ${name}, a one-of-a-kind doll with a gentle story to tell.`;
+
+  return {
+    caption: `${name} ✨\n${intro}\n\n${teaser}\n\nDiscover ${name}'s world: ${PUBLIC_BASE_URL}/doll/${slugify(name)}\n\n#MailleEtMerveille #DollWithAStory #HandmadeDoll`,
+    hook: `Meet ${name}, a one-of-a-kind doll from the ${theme} world.`,
+    blurb: `${name} is a handmade doll created to bring story, warmth, and imagination into everyday moments. ${hook}`,
+    cta: `Discover ${name}'s world`,
+  };
+}
+
 export default function Page() {
   const [themes, setThemes] = useState(DEFAULT_THEMES);
   const [dolls, setDolls] = useState([]);
@@ -115,6 +130,13 @@ export default function Page() {
     mainStory: "",
     mini1: "",
     mini2: "",
+  });
+
+  const [contentPack, setContentPack] = useState({
+    caption: "",
+    hook: "",
+    blurb: "",
+    cta: "",
   });
 
   const [notice, setNotice] = useState("");
@@ -180,6 +202,18 @@ export default function Page() {
       mini1: minis[0]?.content || "",
       mini2: minis[1]?.content || "",
     });
+
+    const { data: contentRows } = await supabase
+      .from("content_assets")
+      .select("*")
+      .eq("doll_id", dollId);
+
+    const caption = (contentRows || []).find((c) => c.type === "instagram_caption")?.content || "";
+    const hook = (contentRows || []).find((c) => c.type === "promo_hook")?.content || "";
+    const blurb = (contentRows || []).find((c) => c.type === "product_blurb")?.content || "";
+    const cta = (contentRows || []).find((c) => c.type === "cta")?.content || "";
+
+    setContentPack({ caption, hook, blurb, cta });
   }
 
   useEffect(() => {
@@ -340,6 +374,81 @@ export default function Page() {
       )
     );
     setNotice("Digital layer activated.");
+  }
+
+  function generateContentPack() {
+    if (!selected) return;
+    const pack = buildContentPack({ ...selected, ...identity }, story);
+    setContentPack(pack);
+    setNotice("Content pack generated.");
+  }
+
+  async function saveContentPack() {
+    if (!selected) return;
+    setError("");
+    setNotice("");
+
+    await supabase
+      .from("content_assets")
+      .delete()
+      .eq("doll_id", selected.id)
+      .in("type", ["instagram_caption", "promo_hook", "product_blurb", "cta"]);
+
+    const inserts = [
+      {
+        doll_id: selected.id,
+        type: "instagram_caption",
+        title: "Instagram Caption",
+        content: contentPack.caption,
+        platform: "instagram",
+        status: "draft",
+      },
+      {
+        doll_id: selected.id,
+        type: "promo_hook",
+        title: "Promo Hook",
+        content: contentPack.hook,
+        platform: "internal",
+        status: "draft",
+      },
+      {
+        doll_id: selected.id,
+        type: "product_blurb",
+        title: "Product Blurb",
+        content: contentPack.blurb,
+        platform: "internal",
+        status: "draft",
+      },
+      {
+        doll_id: selected.id,
+        type: "cta",
+        title: "CTA",
+        content: contentPack.cta,
+        platform: "internal",
+        status: "draft",
+      },
+    ].filter((x) => (x.content || "").trim());
+
+    const { error } = await supabase.from("content_assets").insert(inserts);
+    if (error) {
+      setError(error.message);
+      return;
+    }
+
+    const { error: dollError } = await supabase
+      .from("dolls")
+      .update({ status: "content" })
+      .eq("id", selected.id);
+
+    if (dollError) {
+      setError(dollError.message);
+      return;
+    }
+
+    setDolls((prev) =>
+      prev.map((d) => (d.id === selected.id ? { ...d, status: "content" } : d))
+    );
+    setNotice("Content pack saved.");
   }
 
   async function copyToClipboard(value, successMessage) {
@@ -652,7 +761,54 @@ export default function Page() {
                   </div>
                 ) : null}
 
-                {activeTab !== "identity" && activeTab !== "story" && activeTab !== "digital" ? (
+                {activeTab === "content" ? (
+                  <div style={{ marginTop: 24, display: "grid", gap: 20 }}>
+                    <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                      <button onClick={generateContentPack} style={primaryButton}>Generate Content Pack</button>
+                      <button onClick={saveContentPack} style={secondaryButton}>Save Content Pack</button>
+                    </div>
+
+                    <div style={contentCardStyle}>
+                      <div style={sectionLabelStyle}>Instagram Caption</div>
+                      <textarea
+                        value={contentPack.caption}
+                        onChange={(e) => setContentPack({ ...contentPack, caption: e.target.value })}
+                        style={{ ...inputStyle, minHeight: 140 }}
+                      />
+                    </div>
+
+                    <div style={contentGridStyle}>
+                      <div style={contentCardStyle}>
+                        <div style={sectionLabelStyle}>Short Promo Hook</div>
+                        <textarea
+                          value={contentPack.hook}
+                          onChange={(e) => setContentPack({ ...contentPack, hook: e.target.value })}
+                          style={{ ...inputStyle, minHeight: 120 }}
+                        />
+                      </div>
+
+                      <div style={contentCardStyle}>
+                        <div style={sectionLabelStyle}>CTA</div>
+                        <textarea
+                          value={contentPack.cta}
+                          onChange={(e) => setContentPack({ ...contentPack, cta: e.target.value })}
+                          style={{ ...inputStyle, minHeight: 120 }}
+                        />
+                      </div>
+                    </div>
+
+                    <div style={contentCardStyle}>
+                      <div style={sectionLabelStyle}>Product Blurb</div>
+                      <textarea
+                        value={contentPack.blurb}
+                        onChange={(e) => setContentPack({ ...contentPack, blurb: e.target.value })}
+                        style={{ ...inputStyle, minHeight: 140 }}
+                      />
+                    </div>
+                  </div>
+                ) : null}
+
+                {activeTab !== "identity" && activeTab !== "story" && activeTab !== "digital" && activeTab !== "content" ? (
                   <div style={{ marginTop: 24, padding: 20, border: "1px dashed #cbd5e1", borderRadius: 18, color: "#64748b" }}>
                     {statusLabel(activeTab)} module is ready for the next build step.
                   </div>
@@ -784,4 +940,17 @@ const mutedTextStyle = {
   lineHeight: 1.7,
   fontSize: 15,
   margin: 0,
+};
+
+const contentCardStyle = {
+  background: "#ffffff",
+  border: "1px solid #e5e7eb",
+  borderRadius: 22,
+  padding: 20,
+};
+
+const contentGridStyle = {
+  display: "grid",
+  gridTemplateColumns: "1fr 1fr",
+  gap: 20,
 };
