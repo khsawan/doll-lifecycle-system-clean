@@ -99,6 +99,47 @@ function buildContentPack(doll, storyData) {
   const intro = doll.short_intro || `${name} is a one-of-a-kind handmade doll with a story.`;
   const teaser = storyData.teaser || `Meet ${name}, a one-of-a-kind doll with a gentle story to tell.`;
 
+  function buildReadiness(identity, story, contentPack, order, publicUrl) {
+  const checks = {
+    identity:
+      Boolean(identity.name?.trim()) &&
+      Boolean(identity.theme_name?.trim()) &&
+      Boolean(identity.personality_traits?.trim()) &&
+      Boolean(identity.emotional_hook?.trim()) &&
+      Boolean(identity.short_intro?.trim()),
+
+    story:
+      Boolean(story.teaser?.trim()) &&
+      Boolean(story.mainStory?.trim()) &&
+      Boolean(story.mini1?.trim()) &&
+      Boolean(story.mini2?.trim()),
+
+    digital:
+      Boolean(publicUrl?.trim()),
+
+    content:
+      Boolean(contentPack.caption?.trim()) &&
+      Boolean(contentPack.hook?.trim()) &&
+      Boolean(contentPack.blurb?.trim()) &&
+      Boolean(contentPack.cta?.trim()),
+
+    sales:
+      Boolean(order.customer_name?.trim()) &&
+      Boolean(order.contact_info?.trim()) &&
+      Boolean(order.order_status?.trim()),
+  };
+
+  const entries = Object.entries(checks);
+  const completed = entries.filter(([, value]) => value).length;
+  const score = Math.round((completed / entries.length) * 100);
+
+  return {
+    checks,
+    score,
+    missing: entries.filter(([, value]) => !value).map(([key]) => key),
+  };
+}
+  
   return {
     caption: `${name} ✨
 ${intro}
@@ -552,7 +593,33 @@ export default function Page() {
 
     setNotice("Order saved.");
   }
+async function markAsLive() {
+  if (!selected) return;
 
+  if (readiness.score < 100) {
+    setError(`This doll is not fully ready yet. Missing: ${readiness.missing.join(", ")}`);
+    return;
+  }
+
+  setError("");
+  setNotice("");
+
+  const { error } = await supabase
+    .from("dolls")
+    .update({ status: "live" })
+    .eq("id", selected.id);
+
+  if (error) {
+    setError(error.message);
+    return;
+  }
+
+  setDolls((prev) =>
+    prev.map((d) => (d.id === selected.id ? { ...d, status: "live" } : d))
+  );
+
+  setNotice("Doll marked as live.");
+}
   async function copyToClipboard(value, successMessage) {
     try {
       await navigator.clipboard.writeText(value);
@@ -561,7 +628,7 @@ export default function Page() {
       setError("Clipboard copy failed.");
     }
   }
-
+const readiness = buildReadiness(identity, story, contentPack, order, publicUrl);
   const metrics = {
     total: dolls.length,
     live: dolls.filter((d) => d.status === "live").length,
@@ -964,11 +1031,88 @@ export default function Page() {
                       Save Order
                     </button>
                   </div>
-                ) : activeTab === "live" ? (
-                  <div style={{ marginTop: 24, padding: 20, border: "1px dashed #cbd5e1", borderRadius: 18, color: "#64748b" }}>
-                    Live module is ready for the next build step.
-                  </div>
-                ) : null}
+                )) : activeTab === "live" ? (
+  <div style={{ marginTop: 24, display: "grid", gap: 20 }}>
+    <div style={contentCardStyle}>
+      <div style={sectionLabelStyle}>Launch Readiness</div>
+      <div style={{ fontSize: 40, fontWeight: 700, marginBottom: 8 }}>
+        {readiness.score}%
+      </div>
+      <div style={{ color: "#64748b", fontSize: 16 }}>
+        This score reflects whether the doll is ready to be treated as a live release.
+      </div>
+    </div>
+
+    <div style={contentCardStyle}>
+      <div style={sectionLabelStyle}>Checklist</div>
+      <div style={{ display: "grid", gap: 12 }}>
+        {[
+          ["Identity complete", readiness.checks.identity],
+          ["Story complete", readiness.checks.story],
+          ["Digital page ready", readiness.checks.digital],
+          ["Content pack ready", readiness.checks.content],
+          ["Sales info present", readiness.checks.sales],
+        ].map(([label, done]) => (
+          <div
+            key={label}
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              padding: "14px 16px",
+              border: "1px solid #e5e7eb",
+              borderRadius: 16,
+              background: done ? "#ecfdf5" : "#fff7ed",
+            }}
+          >
+            <div style={{ fontSize: 16 }}>{label}</div>
+            <div
+              style={{
+                fontWeight: 700,
+                color: done ? "#166534" : "#9a3412",
+              }}
+            >
+              {done ? "Ready" : "Missing"}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+
+    <div style={contentCardStyle}>
+      <div style={sectionLabelStyle}>Missing Items</div>
+      {readiness.missing.length ? (
+        <ul style={{ margin: 0, paddingLeft: 18, color: "#64748b", lineHeight: 1.9 }}>
+          {readiness.missing.map((item) => (
+            <li key={item}>{item}</li>
+          ))}
+        </ul>
+      ) : (
+        <div style={{ color: "#166534", fontWeight: 600 }}>
+          Everything is ready.
+        </div>
+      )}
+    </div>
+
+    <div style={contentCardStyle}>
+      <div style={sectionLabelStyle}>Release Action</div>
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+        <button onClick={markAsLive} style={primaryButton}>
+          Mark as Live
+        </button>
+
+        {publicUrl ? (
+          <button
+            onClick={() => window.open(publicUrl, "_blank")}
+            style={secondaryButton}
+          >
+            Open Public Page
+          </button>
+        ) : null}
+      </div>
+    </div>
+  </div>
+) : null}
               </>
             ) : (
               <div style={{ color: "#64748b" }}>Create your first doll to begin.</div>
