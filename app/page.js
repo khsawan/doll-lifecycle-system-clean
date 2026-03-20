@@ -1,559 +1,560 @@
-'use client';
+"use client";
 
-import { useEffect, useMemo, useState } from 'react';
-import { getSupabase } from '../lib/supabase';
+import { useEffect, useMemo, useState } from "react";
+import { supabase } from "../lib/supabase";
 
-const supabase = getSupabase();
-const STATUSES = ['new', 'identity', 'story', 'digital', 'content', 'sales', 'live', 'archived'];
-const TABS = ['identity', 'story', 'digital', 'content', 'sales', 'live'];
-const STORY_STYLES = [
-  { value: 'gentle', label: 'Gentle' },
-  { value: 'playful', label: 'Playful' },
-  { value: 'magical', label: 'Magical' },
-];
+const DEFAULT_THEMES = ["Unassigned", "Nature Friends", "Little Dreamers", "Cozy World"];
+const STATUSES = ["new", "identity", "story", "digital", "content", "sales", "live"];
+const STORY_TONES = ["Gentle", "Playful", "Magical"];
 
-function makeSlug(value) {
-  return (value || '')
+function slugify(value) {
+  return (value || "")
     .toLowerCase()
     .trim()
-    .replace(/[^a-z0-9\s-]/g, '')
-    .replace(/\s+/g, '-')
-    .replace(/-+/g, '-');
+    .replace(/[^a-z0-9\s-]/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-");
 }
 
-function stageProgress(status) {
-  const idx = STATUSES.indexOf(status);
-  return idx >= 0 ? Math.round(((idx + 1) / STATUSES.length) * 100) : 0;
+function progressFromStatus(status) {
+  const idx = STATUSES.indexOf(status || "new");
+  return Math.max(13, Math.round(((Math.max(idx, 0) + 1) / STATUSES.length) * 100));
 }
 
 function statusLabel(status) {
-  return status ? status.charAt(0).toUpperCase() + status.slice(1) : 'New';
+  if (!status) return "New";
+  return status.charAt(0).toUpperCase() + status.slice(1);
 }
 
-function splitTraits(text) {
-  return (text || '')
-    .split(',')
+function cleanList(value) {
+  return (value || "")
+    .split(",")
     .map((x) => x.trim())
     .filter(Boolean);
 }
 
-function firstSentence(text) {
-  const cleaned = (text || '').trim();
-  if (!cleaned) return '';
-  const match = cleaned.match(/[^.!?]+[.!?]?/);
-  return match ? match[0].trim() : cleaned;
-}
+function buildStoryPack(doll, tone) {
+  const name = doll.name || "This doll";
+  const theme = doll.theme_name || "Unassigned";
+  const traits = cleanList(doll.personality_traits);
+  const traitText = traits.length ? traits.slice(0, 3).join(", ") : "gentle, curious, and kind";
+  const hook = doll.emotional_hook || `${name} brings warmth and wonder wherever she goes`;
+  const intro = doll.short_intro || `${name} turns ordinary moments into soft little stories.`;
 
-function storyReadiness(doll) {
-  let score = 0;
-  if (doll?.name?.trim()) score += 25;
-  if (doll?.theme_id) score += 15;
-  if (doll?.personality_traits?.trim()) score += 25;
-  if (doll?.emotional_hook?.trim()) score += 20;
-  if (doll?.short_intro?.trim()) score += 15;
-  return score;
-}
+  const openers = {
+    Gentle: `${name} loves the quiet beauty of small moments and always notices when someone needs comfort.`,
+    Playful: `${name} can turn the simplest day into a happy little adventure full of laughter and surprises.`,
+    Magical: `${name} moves through the world as if every breeze, flower, and sunrise is holding a tiny secret.`,
+  };
 
-function themedSetting(themeName) {
-  const theme = (themeName || '').toLowerCase();
-  if (theme.includes('nature')) {
-    return 'soft grass, tiny flowers, and little animal friends';
-  }
-  if (theme.includes('dream')) {
-    return 'pastel skies, sleepy stars, and whispering clouds';
-  }
-  if (theme.includes('cozy')) {
-    return 'warm corners, gentle routines, and everyday comfort';
-  }
-  return 'little moments that feel warm, safe, and full of wonder';
-}
+  const bridges = {
+    Gentle: `With a ${traitText} heart, ${name} makes every place feel softer and safer.`,
+    Playful: `With a ${traitText} spirit, ${name} fills the day with smiles, games, and bright ideas.`,
+    Magical: `With a ${traitText} spirit, ${name} finds wonder hidden in the smallest details.`,
+  };
 
-function styleWords(style) {
-  if (style === 'playful') {
-    return {
-      tone: 'light, cheerful, and full of movement',
-      action: 'turns simple moments into cheerful little games',
-      sparkle: 'with a smile that makes every moment feel brighter',
-    };
-  }
-  if (style === 'magical') {
-    return {
-      tone: 'soft, glowing, and touched by wonder',
-      action: 'finds tiny sparkles of magic in ordinary moments',
-      sparkle: 'as if a little bit of moonlight follows every step',
-    };
-  }
+  const closers = {
+    Gentle: `By the end of each day, ${name} leaves a little more kindness behind.`,
+    Playful: `${name} always finds a new reason to smile before the sun goes down.`,
+    Magical: `Wherever ${name} goes, a little bit of wonder seems to stay behind.`,
+  };
+
+  const teaser =
+    tone === "Magical"
+      ? `Meet ${name}, a one-of-a-kind friend who turns everyday moments into tiny pieces of magic.`
+      : tone === "Playful"
+        ? `Meet ${name}, a one-of-a-kind friend who makes every day feel brighter, happier, and full of adventure.`
+        : `Meet ${name}, a one-of-a-kind friend whose gentle heart makes everyday moments feel warm and special.`;
+
+  const mainStory = `${openers[tone]} ${intro} ${bridges[tone]} In the ${theme} world, ${name} shows that ${hook.charAt(0).toLowerCase() + hook.slice(1)}. ${closers[tone]}`;
+
+  const mini1 =
+    tone === "Playful"
+      ? `${name} once turned an ordinary afternoon into a tiny celebration with a clever game and a big smile.`
+      : tone === "Magical"
+        ? `${name} once followed a golden breeze and discovered that even a quiet afternoon can feel enchanted.`
+        : `${name} once turned an ordinary afternoon into a calm little memory that everyone wanted to keep.`;
+
+  const mini2 =
+    tone === "Playful"
+      ? `${name} notices the little things others miss and always finds a fun way to make them shine.`
+      : tone === "Magical"
+        ? `${name} notices the smallest details and treats them like little treasures from a hidden story.`
+        : `${name} notices the small things others forget and makes them feel important again.`;
+
   return {
-    tone: 'soft, calm, and comforting',
-    action: 'makes each day feel gentle and reassuring',
-    sparkle: 'with a warmth that makes everyone feel safe',
+    teaser,
+    mainStory,
+    mini1,
+    mini2,
+    slug: slugify(name),
   };
 }
 
-function joinTraits(traits) {
-  if (!traits.length) return 'gentle, kind, and curious';
-  if (traits.length === 1) return traits[0];
-  if (traits.length === 2) return `${traits[0]} and ${traits[1]}`;
-  return `${traits[0]}, ${traits[1]}, and ${traits[2]}`;
-}
-
-function buildStoryDraft(doll, themeName, style = 'gentle') {
-  const name = doll.name?.trim() || 'This doll';
-  const theme = themeName || 'Maille & Merveille';
-  const traits = splitTraits(doll.personality_traits);
-  const traitPhrase = joinTraits(traits);
-  const hook = (doll.emotional_hook || '').trim();
-  const intro = (doll.short_intro || '').trim();
-  const setting = themedSetting(theme);
-  const words = styleWords(style);
-
-  const introSentence = intro || `${name} is ${traitPhrase}.`;
-  const hookSentence = hook || `${name} ${words.action}.`;
-  const compactHook = firstSentence(hookSentence).replace(/[.!?]+$/, '');
-
-  const teaser = `Meet ${name}, a one-of-a-kind friend who ${compactHook.charAt(0).toLowerCase()}${compactHook.slice(1)}.`;
-
-  const main = `${name} lives in a world of ${setting}. ${introSentence} ${hookSentence} In this ${words.tone} little world, ${name} notices the small things others miss and turns them into stories worth keeping ${words.sparkle}.`;
-
-  const mini1 = `${name} once found a quiet little moment and made it feel special just by being ${traits[0] || 'gentle'}.`;
-  const mini2 = `Whenever someone feels small or unsure, ${name} remembers that ${traits[1] || traits[0] || 'kindness'} can change the whole day.`;
-
-  const caption = `Meet ${name} 💛 ${compactHook}. A one-of-a-kind doll from our ${theme} world.`;
-  const visualPrompt = `${theme} storybook aesthetic, ${style} tone, handmade doll feeling, child-friendly composition, warm premium brand look, soft natural lighting, poetic and polished`; 
-  const heroText = introSentence;
-  const slug = makeSlug(name || doll.internal_id);
-
-  return { teaser, main, mini1, mini2, caption, visualPrompt, heroText, slug };
-}
-
-export default function HomePage() {
-  const [themes, setThemes] = useState([{ id: 'unassigned', name: 'Unassigned' }]);
+export default function Page() {
+  const [themes, setThemes] = useState(DEFAULT_THEMES);
   const [dolls, setDolls] = useState([]);
-  const [selectedId, setSelectedId] = useState('');
-  const [tab, setTab] = useState('identity');
-  const [newDoll, setNewDoll] = useState({ name: '', artist_name: '', theme_id: 'unassigned' });
-  const [storyPack, setStoryPack] = useState({ teaser: '', main: '', mini1: '', mini2: '' });
-  const [storyStyle, setStoryStyle] = useState('gentle');
-  const [contentPack, setContentPack] = useState({ caption: '', visualPrompt: '' });
-  const [digitalPack, setDigitalPack] = useState({ slug: '', hero_text: '', qr_url: '' });
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
+  const [selectedId, setSelectedId] = useState(null);
 
-  const selected = dolls.find((d) => d.id === selectedId) || null;
-  const selectedThemeName = themes.find((t) => t.id === selected?.theme_id)?.name || 'Unassigned';
-  const readiness = storyReadiness(selected);
+  const [newDollName, setNewDollName] = useState("");
+  const [newArtistName, setNewArtistName] = useState("");
+  const [newTheme, setNewTheme] = useState("Unassigned");
 
-  const metrics = useMemo(() => ({
-    total: dolls.length,
-    live: dolls.filter((d) => d.status === 'live').length,
-    available: dolls.filter((d) => d.availability_status === 'available').length,
-    sold: dolls.filter((d) => ['sold', 'in_delivery', 'delivered'].includes(d.sales_status)).length,
-  }), [dolls]);
+  const [identity, setIdentity] = useState({
+    name: "",
+    theme_name: "Unassigned",
+    personality_traits: "",
+    emotional_hook: "",
+    short_intro: "",
+  });
 
-  async function loadBase() {
-    setLoading(true);
-    setError('');
-    try {
-      const [{ data: themesData, error: themesError }, { data: dollsData, error: dollsError }] = await Promise.all([
-        supabase.from('themes').select('id,name').order('name'),
-        supabase.from('dolls').select('*').order('created_at', { ascending: false }),
-      ]);
-      if (themesError) throw themesError;
-      if (dollsError) throw dollsError;
-      setThemes([...(themesData || []), { id: 'unassigned', name: 'Unassigned' }]);
-      setDolls(dollsData || []);
-      setSelectedId((current) => current || dollsData?.[0]?.id || '');
-    } catch (e) {
-      setError(e.message || 'Failed to load data.');
-    } finally {
-      setLoading(false);
-    }
+  const [storyTone, setStoryTone] = useState("Gentle");
+  const [story, setStory] = useState({
+    teaser: "",
+    mainStory: "",
+    mini1: "",
+    mini2: "",
+  });
+
+  const [notice, setNotice] = useState("");
+  const [error, setError] = useState("");
+  const [activeTab, setActiveTab] = useState("identity");
+
+  const selected = useMemo(
+    () => dolls.find((d) => d.id === selectedId) || dolls[0] || null,
+    [dolls, selectedId]
+  );
+
+  async function loadThemes() {
+    const { data } = await supabase.from("themes").select("name").order("name");
+    const dbThemes = (data || []).map((x) => x.name).filter(Boolean);
+    const merged = Array.from(new Set(["Unassigned", ...dbThemes, ...DEFAULT_THEMES]));
+    setThemes(merged);
   }
 
-  useEffect(() => { loadBase(); }, []);
+  async function loadDolls() {
+    const { data, error } = await supabase.from("dolls").select("*").order("created_at", { ascending: true });
+    if (error) {
+      setError(error.message);
+      return;
+    }
+    const mapped = (data || []).map((d) => ({
+      ...d,
+      theme_name: d.theme_name || "Unassigned",
+    }));
+    setDolls(mapped);
+    if (!selectedId && mapped.length) setSelectedId(mapped[0].id);
+  }
+
+  async function loadDetails(dollId) {
+    if (!dollId) return;
+    setError("");
+    const doll = dolls.find((d) => d.id === dollId);
+    if (doll) {
+      setIdentity({
+        name: doll.name || "",
+        theme_name: doll.theme_name || "Unassigned",
+        personality_traits: doll.personality_traits || "",
+        emotional_hook: doll.emotional_hook || "",
+        short_intro: doll.short_intro || "",
+      });
+    }
+
+    const { data: stories } = await supabase
+      .from("stories")
+      .select("*")
+      .eq("doll_id", dollId)
+      .order("sequence_order", { ascending: true });
+
+    const teaser = (stories || []).find((s) => s.type === "teaser")?.content || "";
+    const mainStory = (stories || []).find((s) => s.type === "main")?.content || "";
+    const minis = (stories || []).filter((s) => s.type === "mini");
+    setStory({
+      teaser,
+      mainStory,
+      mini1: minis[0]?.content || "",
+      mini2: minis[1]?.content || "",
+    });
+  }
 
   useEffect(() => {
-    async function loadDetails() {
-      if (!selected) return;
-      const [profile, stories, page, content] = await Promise.all([
-        supabase.from('character_profiles').select('*').eq('doll_id', selected.id).maybeSingle(),
-        supabase.from('stories').select('*').eq('doll_id', selected.id).order('sequence_order'),
-        supabase.from('digital_pages').select('*').eq('doll_id', selected.id).maybeSingle(),
-        supabase.from('content_assets').select('*').eq('doll_id', selected.id),
-      ]);
-      setDolls((prev) => prev.map((d) => d.id === selected.id ? {
-        ...d,
-        personality_traits: profile.data?.personality_traits || '',
-        emotional_hook: profile.data?.emotional_hook || '',
-        short_intro: profile.data?.short_intro || '',
-      } : d));
-      const teaser = stories.data?.find((x) => x.type === 'teaser')?.content || '';
-      const main = stories.data?.find((x) => x.type === 'main')?.content || '';
-      const minis = stories.data?.filter((x) => x.type === 'mini') || [];
-      const caption = content.data?.find((x) => x.type === 'instagram_caption')?.content || '';
-      const visualPrompt = content.data?.find((x) => x.type === 'visual_prompt')?.content || '';
-      setStoryPack({ teaser, main, mini1: minis[0]?.content || '', mini2: minis[1]?.content || '' });
-      const slug = page.data?.slug || selected.slug || makeSlug(selected.name || selected.internal_id);
-      setDigitalPack({ slug, hero_text: page.data?.hero_text || profile.data?.short_intro || '', qr_url: `/worlds/${slug}` });
-      setContentPack({ caption, visualPrompt });
-    }
-    loadDetails();
-  }, [selectedId]);
+    loadThemes();
+    loadDolls();
+  }, []);
+
+  useEffect(() => {
+    if (selected) loadDetails(selected.id);
+  }, [selectedId, dolls.length]);
 
   async function createDoll() {
-    setSaving(true); setError(''); setNotice('');
-    try {
-      const internal_id = `DOLL-${String(dolls.length + 1).padStart(3, '0')}`;
-      const payload = {
-        internal_id,
-        name: newDoll.name || internal_id,
-        slug: makeSlug(newDoll.name || internal_id),
-        theme_id: newDoll.theme_id === 'unassigned' ? null : newDoll.theme_id,
-        artist_name: newDoll.artist_name || null,
-      };
-      const { data, error } = await supabase.from('dolls').insert(payload).select('*').single();
-      if (error) throw error;
-      setDolls((prev) => [data, ...prev]);
-      setSelectedId(data.id);
-      setNewDoll({ name: '', artist_name: '', theme_id: 'unassigned' });
-      setNotice('New doll added to the pipeline.');
-    } catch (e) {
-      setError(e.message || 'Failed to create doll.');
-    } finally { setSaving(false); }
-  }
-
-  async function updateDollBase(patch) {
-    if (!selected) return;
-    setSaving(true); setError('');
-    try {
-      const { error } = await supabase.from('dolls').update({ ...patch, updated_at: new Date().toISOString() }).eq('id', selected.id);
-      if (error) throw error;
-      setDolls((prev) => prev.map((d) => d.id === selected.id ? { ...d, ...patch } : d));
-    } catch (e) {
-      setError(e.message || 'Failed to save changes.');
-    } finally { setSaving(false); }
+    setError("");
+    setNotice("");
+    const count = dolls.length + 1;
+    const payload = {
+      internal_id: `DOLL-${String(count).padStart(3, "0")}`,
+      name: newDollName || `DOLL-${String(count).padStart(3, "0")}`,
+      artist_name: newArtistName || null,
+      theme_name: newTheme || "Unassigned",
+      status: "new",
+      availability_status: "available",
+      sales_status: "not_sold",
+      slug: slugify(newDollName || `DOLL-${String(count).padStart(3, "0")}`),
+    };
+    const { data, error } = await supabase.from("dolls").insert(payload).select().single();
+    if (error) {
+      setError(error.message);
+      return;
+    }
+    const next = {
+      ...data,
+      theme_name: data.theme_name || "Unassigned",
+    };
+    setDolls((prev) => [...prev, next]);
+    setSelectedId(next.id);
+    setNewDollName("");
+    setNewArtistName("");
+    setNewTheme("Unassigned");
+    setNotice("New doll added to the pipeline.");
   }
 
   async function saveIdentity() {
     if (!selected) return;
-    setSaving(true); setError(''); setNotice('');
-    try {
-      const existing = await supabase.from('character_profiles').select('id').eq('doll_id', selected.id).maybeSingle();
-      await updateDollBase({
-        name: selected.name,
-        slug: makeSlug(selected.name || selected.internal_id),
-        theme_id: selected.theme_id === 'unassigned' ? null : selected.theme_id,
-        status: selected.status === 'new' ? 'identity' : selected.status,
-      });
-      const payload = { doll_id: selected.id, personality_traits: selected.personality_traits || '', emotional_hook: selected.emotional_hook || '', short_intro: selected.short_intro || '' };
-      const result = existing.data?.id
-        ? await supabase.from('character_profiles').update(payload).eq('id', existing.data.id)
-        : await supabase.from('character_profiles').insert(payload);
-      if (result.error) throw result.error;
-      setNotice('Identity saved.');
-    } catch (e) {
-      setError(e.message || 'Failed to save identity.');
-    } finally { setSaving(false); }
+    setError("");
+    setNotice("");
+    const patch = {
+      name: identity.name,
+      theme_name: identity.theme_name,
+      personality_traits: identity.personality_traits,
+      emotional_hook: identity.emotional_hook,
+      short_intro: identity.short_intro,
+      slug: slugify(identity.name || selected.internal_id),
+      status: selected.status === "new" ? "identity" : selected.status,
+    };
+    const { error } = await supabase.from("dolls").update(patch).eq("id", selected.id);
+    if (error) {
+      setError(error.message);
+      return;
+    }
+    setDolls((prev) =>
+      prev.map((d) => (d.id === selected.id ? { ...d, ...patch } : d))
+    );
+    setNotice("Identity saved.");
   }
 
-  async function saveStories() {
+  async function saveStory() {
     if (!selected) return;
-    setSaving(true); setError(''); setNotice('');
-    try {
-      await supabase.from('stories').delete().eq('doll_id', selected.id);
-      const rows = [
-        { doll_id: selected.id, type: 'teaser', title: 'Teaser', content: storyPack.teaser, sequence_order: 1 },
-        { doll_id: selected.id, type: 'main', title: 'Main story', content: storyPack.main, sequence_order: 2 },
-        { doll_id: selected.id, type: 'mini', title: 'Mini story 1', content: storyPack.mini1, sequence_order: 3 },
-        { doll_id: selected.id, type: 'mini', title: 'Mini story 2', content: storyPack.mini2, sequence_order: 4 },
-      ].filter((row) => row.content?.trim());
-      if (rows.length) {
-        const { error } = await supabase.from('stories').insert(rows);
-        if (error) throw error;
-      }
-      await updateDollBase({ status: 'story' });
-      setNotice('Story engine output saved.');
-    } catch (e) {
-      setError(e.message || 'Failed to save stories.');
-    } finally { setSaving(false); }
+    setError("");
+    setNotice("");
+
+    await supabase.from("stories").delete().eq("doll_id", selected.id);
+
+    const inserts = [
+      { doll_id: selected.id, type: "teaser", title: "Card teaser", content: story.teaser, sequence_order: 1 },
+      { doll_id: selected.id, type: "main", title: "Main story", content: story.mainStory, sequence_order: 2 },
+      { doll_id: selected.id, type: "mini", title: "Mini story 1", content: story.mini1, sequence_order: 3 },
+      { doll_id: selected.id, type: "mini", title: "Mini story 2", content: story.mini2, sequence_order: 4 },
+    ].filter((x) => (x.content || "").trim());
+
+    const { error } = await supabase.from("stories").insert(inserts);
+    if (error) {
+      setError(error.message);
+      return;
+    }
+
+    const { error: dollError } = await supabase
+      .from("dolls")
+      .update({ status: "story" })
+      .eq("id", selected.id);
+
+    if (dollError) {
+      setError(dollError.message);
+      return;
+    }
+
+    setDolls((prev) =>
+      prev.map((d) => (d.id === selected.id ? { ...d, status: "story" } : d))
+    );
+    setNotice("Story saved.");
   }
 
-  async function saveDigital() {
+  function applyTone(tone) {
+    setStoryTone(tone);
     if (!selected) return;
-    setSaving(true); setError(''); setNotice('');
-    try {
-      const slug = makeSlug(digitalPack.slug || selected.name || selected.internal_id);
-      const existing = await supabase.from('digital_pages').select('id').eq('doll_id', selected.id).maybeSingle();
-      const payload = {
-        doll_id: selected.id,
-        slug,
-        meta_title: `${selected.name || selected.internal_id} | Maille & Merveille`,
-        meta_description: selected.short_intro || 'A doll with a story.',
-        hero_text: digitalPack.hero_text || selected.short_intro || '',
-        status: 'draft',
-      };
-      let pageId = existing.data?.id;
-      if (pageId) {
-        const { error } = await supabase.from('digital_pages').update(payload).eq('id', pageId);
-        if (error) throw error;
-      } else {
-        const { data, error } = await supabase.from('digital_pages').insert(payload).select('id').single();
-        if (error) throw error;
-        pageId = data.id;
-      }
-      const qrExisting = await supabase.from('qr_codes').select('id').eq('doll_id', selected.id).maybeSingle();
-      const qrPayload = { doll_id: selected.id, page_id: pageId, qr_url: `/worlds/${slug}`, version: 1, active: true };
-      if (qrExisting.data?.id) {
-        const { error } = await supabase.from('qr_codes').update(qrPayload).eq('id', qrExisting.data.id);
-        if (error) throw error;
-      } else {
-        const { error } = await supabase.from('qr_codes').insert(qrPayload);
-        if (error) throw error;
-      }
-      await updateDollBase({ status: 'digital', slug });
-      setNotice('Digital layer saved.');
-    } catch (e) {
-      setError(e.message || 'Failed to save digital layer.');
-    } finally { setSaving(false); }
-  }
-
-  async function saveContent() {
-    if (!selected) return;
-    setSaving(true); setError(''); setNotice('');
-    try {
-      await supabase.from('content_assets').delete().eq('doll_id', selected.id).in('type', ['instagram_caption', 'visual_prompt']);
-      const rows = [
-        { doll_id: selected.id, type: 'instagram_caption', content: contentPack.caption, platform: 'instagram', status: 'draft' },
-        { doll_id: selected.id, type: 'visual_prompt', content: contentPack.visualPrompt, platform: 'internal', status: 'draft' },
-      ].filter((x) => x.content?.trim());
-      if (rows.length) {
-        const { error } = await supabase.from('content_assets').insert(rows);
-        if (error) throw error;
-      }
-      await updateDollBase({ status: 'content' });
-      setNotice('Content assets saved.');
-    } catch (e) {
-      setError(e.message || 'Failed to save content.');
-    } finally { setSaving(false); }
-  }
-
-  function runDraft(style = storyStyle) {
-    if (!selected) return;
-    const draft = buildStoryDraft(selected, selectedThemeName, style);
-    setStoryStyle(style);
-    setStoryPack({ teaser: draft.teaser, main: draft.main, mini1: draft.mini1, mini2: draft.mini2 });
-    setContentPack({ caption: draft.caption, visualPrompt: draft.visualPrompt });
-    setDigitalPack((prev) => ({ ...prev, slug: draft.slug, hero_text: draft.heroText, qr_url: `/worlds/${draft.slug}` }));
-    setNotice(`Generated ${style} story pack.`);
-    setTab('story');
+    const pack = buildStoryPack({ ...selected, ...identity }, tone);
+    setStory({
+      teaser: pack.teaser,
+      mainStory: pack.mainStory,
+      mini1: pack.mini1,
+      mini2: pack.mini2,
+    });
+    setNotice(`${tone} story pack generated.`);
   }
 
   async function advanceStage() {
     if (!selected) return;
-    const idx = STATUSES.indexOf(selected.status || 'new');
+    const idx = STATUSES.indexOf(selected.status || "new");
     const next = STATUSES[Math.min(idx + 1, STATUSES.length - 1)];
-    await updateDollBase({ status: next });
+    const { error } = await supabase.from("dolls").update({ status: next }).eq("id", selected.id);
+    if (error) {
+      setError(error.message);
+      return;
+    }
+    setDolls((prev) => prev.map((d) => (d.id === selected.id ? { ...d, status: next } : d)));
+    setNotice(`Advanced to ${statusLabel(next)}.`);
   }
 
-  function Field({ label, value, onChange, textarea = false, rows = 4, placeholder = '' }) {
-    return (
-      <label style={{ display: 'block' }}>
-        <div style={{ fontSize: 14, color: '#46546f', marginBottom: 8 }}>{label}</div>
-        {textarea ? (
-          <textarea value={value} onChange={onChange} rows={rows} placeholder={placeholder} style={inputStyle(true)} />
-        ) : (
-          <input value={value} onChange={onChange} placeholder={placeholder} style={inputStyle(false)} />
-        )}
-      </label>
-    );
+  function generateDraft() {
+    if (!selected) return;
+    const pack = buildStoryPack({ ...selected, ...identity }, storyTone);
+    setStory({
+      teaser: pack.teaser,
+      mainStory: pack.mainStory,
+      mini1: pack.mini1,
+      mini2: pack.mini2,
+    });
+    setNotice("Draft generated.");
   }
+
+  const metrics = {
+    total: dolls.length,
+    live: dolls.filter((d) => d.status === "live").length,
+    available: dolls.filter((d) => d.availability_status === "available").length,
+    sold: dolls.filter((d) => d.sales_status === "sold").length,
+  };
 
   return (
-    <main style={{ padding: 28, fontFamily: 'Arial, sans-serif', background: '#f6f8fb', minHeight: '100vh', color: '#0b1730' }}>
-      <div style={{ maxWidth: 1180, margin: '0 auto' }}>
-        <div style={{ letterSpacing: 3, fontSize: 12, color: '#5d6985', marginBottom: 8 }}>MAILLE & MERVEILLE</div>
-        <h1 style={{ fontSize: 48, margin: 0 }}>Doll Lifecycle System</h1>
-        <p style={{ maxWidth: 860, fontSize: 16, color: '#46546f', marginTop: 8 }}>
+    <main style={{ background: "#f6f7fb", minHeight: "100vh", padding: 32, fontFamily: "Inter, Arial, sans-serif", color: "#0f172a" }}>
+      <div style={{ maxWidth: 1220, margin: "0 auto" }}>
+        <div style={{ letterSpacing: 3, fontSize: 14, color: "#64748b", marginBottom: 8 }}>MAILLE & MERVEILLE</div>
+        <h1 style={{ fontSize: 50, margin: 0, lineHeight: 1.05 }}>Doll Lifecycle System</h1>
+        <p style={{ fontSize: 18, color: "#475569", maxWidth: 860, marginTop: 12 }}>
           A full internal pipeline that transforms every handmade doll into a character, a living digital story asset, and a scalable brand node.
         </p>
 
-        {notice ? <div style={bannerStyle('#e8f8ee', '#4caf72')}>{notice}</div> : null}
-        {error ? <div style={bannerStyle('#fdeced', '#df6c78')}>{error}</div> : null}
+        {notice ? (
+          <div style={{ marginTop: 24, background: "#dff5e7", border: "1px solid #9fe0b4", color: "#166534", padding: 16, borderRadius: 16 }}>
+            {notice}
+          </div>
+        ) : null}
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginTop: 24 }}>
-          <Metric label="Total Dolls" value={metrics.total} />
-          <Metric label="Live Worlds" value={metrics.live} />
-          <Metric label="Available" value={metrics.available} />
-          <Metric label="Sold" value={metrics.sold} />
+        {error ? (
+          <div style={{ marginTop: 24, background: "#fee2e2", border: "1px solid #fca5a5", color: "#991b1b", padding: 16, borderRadius: 16 }}>
+            {error}
+          </div>
+        ) : null}
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 18, marginTop: 28 }}>
+          {[
+            ["Total Dolls", metrics.total],
+            ["Live Worlds", metrics.live],
+            ["Available", metrics.available],
+            ["Sold", metrics.sold],
+          ].map(([label, value]) => (
+            <div key={label} style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 22, padding: 24 }}>
+              <div style={{ color: "#64748b", fontSize: 16 }}>{label}</div>
+              <div style={{ fontSize: 42, marginTop: 10, fontWeight: 700 }}>{value}</div>
+            </div>
+          ))}
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '340px 1fr', gap: 22, marginTop: 24 }}>
-          <section style={cardStyle()}>
-            <h2 style={sectionTitleStyle}>Pipeline Control</h2>
-            <Field label="Doll name or temporary label" value={newDoll.name} onChange={(e) => setNewDoll({ ...newDoll, name: e.target.value })} />
-            <div style={{ height: 10 }} />
-            <Field label="Artist name" value={newDoll.artist_name} onChange={(e) => setNewDoll({ ...newDoll, artist_name: e.target.value })} />
-            <div style={{ height: 10 }} />
-            <label>
-              <div style={{ fontSize: 14, color: '#46546f', marginBottom: 8 }}>Theme</div>
-              <select value={newDoll.theme_id} onChange={(e) => setNewDoll({ ...newDoll, theme_id: e.target.value })} style={inputStyle(false)}>
-                {themes.map((theme) => <option key={theme.id} value={theme.id}>{theme.name}</option>)}
-              </select>
-            </label>
-            <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
-              <button style={primaryButtonStyle} onClick={createDoll} disabled={saving}>{saving ? 'Saving...' : 'Create Intake Entry'}</button>
-              <button style={secondaryButtonStyle} onClick={loadBase}>Refresh</button>
+        <div style={{ display: "grid", gridTemplateColumns: "360px 1fr", gap: 24, marginTop: 28 }}>
+          <section style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 28, padding: 22 }}>
+            <h2 style={{ marginTop: 0, fontSize: 24 }}>Pipeline Control</h2>
+
+            <div style={{ marginTop: 20 }}>
+              <label style={{ display: "block", fontSize: 14, color: "#475569", marginBottom: 8 }}>Doll name or temporary label</label>
+              <input value={newDollName} onChange={(e) => setNewDollName(e.target.value)} style={inputStyle} />
             </div>
 
-            <div style={{ borderTop: '1px solid #d8deea', marginTop: 18, paddingTop: 18 }}>
-              <div style={{ fontSize: 14, color: '#5d6985', marginBottom: 10 }}>Dolls</div>
-              {loading ? <div>Loading…</div> : dolls.map((doll) => (
-                <button key={doll.id} onClick={() => setSelectedId(doll.id)} style={{ ...miniCardStyle, borderColor: selectedId === doll.id ? '#0b1730' : '#bfc8d9' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                    <div>
-                      <div style={{ fontWeight: 700, fontSize: 18 }}>{doll.name || doll.internal_id}</div>
-                      <div style={{ fontSize: 13, color: '#71809d', marginTop: 4 }}>{doll.internal_id} · {themes.find((t) => t.id === doll.theme_id)?.name || 'Unassigned'}</div>
+            <div style={{ marginTop: 16 }}>
+              <label style={{ display: "block", fontSize: 14, color: "#475569", marginBottom: 8 }}>Artist name</label>
+              <input value={newArtistName} onChange={(e) => setNewArtistName(e.target.value)} style={inputStyle} />
+            </div>
+
+            <div style={{ marginTop: 16 }}>
+              <label style={{ display: "block", fontSize: 14, color: "#475569", marginBottom: 8 }}>Theme</label>
+              <select value={newTheme} onChange={(e) => setNewTheme(e.target.value)} style={inputStyle}>
+                {themes.map((theme) => (
+                  <option key={theme} value={theme}>
+                    {theme}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
+              <button onClick={createDoll} style={primaryButton}>Create Intake Entry</button>
+              <button onClick={() => { loadThemes(); loadDolls(); }} style={secondaryButton}>Refresh</button>
+            </div>
+
+            <div style={{ borderTop: "1px solid #e2e8f0", marginTop: 22, paddingTop: 18 }}>
+              <div style={{ color: "#64748b", marginBottom: 14 }}>Dolls</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                {dolls.map((d) => (
+                  <button
+                    key={d.id}
+                    onClick={() => setSelectedId(d.id)}
+                    style={{
+                      textAlign: "left",
+                      border: selected?.id === d.id ? "2px solid #0f172a" : "1px solid #cbd5e1",
+                      background: "#fff",
+                      borderRadius: 20,
+                      padding: 16,
+                      cursor: "pointer",
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start" }}>
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: 18 }}>{d.name}</div>
+                        <div style={{ color: "#64748b", marginTop: 4 }}>{d.internal_id} · {d.theme_name || "Unassigned"}</div>
+                      </div>
+                      <div style={{ background: "#eef2ff", color: "#0f172a", borderRadius: 999, padding: "6px 12px", fontSize: 14 }}>
+                        {statusLabel(d.status)}
+                      </div>
                     </div>
-                    <div style={statusPillStyle}>{statusLabel(doll.status)}</div>
-                  </div>
-                  <div style={progressTrackStyle}><div style={{ ...progressFillStyle, width: `${stageProgress(doll.status)}%` }} /></div>
-                  <div style={{ fontSize: 13, color: '#71809d' }}>{stageProgress(doll.status)}% through lifecycle</div>
-                </button>
-              ))}
+                    <div style={{ marginTop: 14, height: 8, background: "#e2e8f0", borderRadius: 999 }}>
+                      <div style={{ width: `${progressFromStatus(d.status)}%`, height: "100%", background: "#0f172a", borderRadius: 999 }} />
+                    </div>
+                    <div style={{ marginTop: 8, color: "#64748b", fontSize: 14 }}>{progressFromStatus(d.status)}% through lifecycle</div>
+                  </button>
+                ))}
+              </div>
             </div>
           </section>
 
-          <section style={cardStyle()}>
+          <section style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 28, padding: 22 }}>
             {selected ? (
               <>
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'flex-start' }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "start" }}>
                   <div>
-                    <h2 style={{ ...sectionTitleStyle, marginBottom: 4 }}>{selected.name || selected.internal_id}</h2>
-                    <div style={{ color: '#71809d' }}>{selected.internal_id} · {selectedThemeName}</div>
+                    <h2 style={{ margin: 0, fontSize: 28 }}>{selected.name}</h2>
+                    <div style={{ color: "#64748b", marginTop: 6 }}>{selected.internal_id} · {identity.theme_name || "Unassigned"}</div>
                   </div>
-                  <div style={{ display: 'flex', gap: 10 }}>
-                    <button style={secondaryButtonStyle} onClick={() => runDraft(storyStyle)}>Generate Draft</button>
-                    <button style={primaryButtonStyle} onClick={advanceStage}>Advance Stage</button>
+                  <div style={{ display: "flex", gap: 12 }}>
+                    <button onClick={generateDraft} style={secondaryButton}>Generate Draft</button>
+                    <button onClick={advanceStage} style={primaryButton}>Advance Stage</button>
                   </div>
                 </div>
 
-                <div style={{ marginTop: 16, color: '#5d6985', fontSize: 14 }}>Lifecycle progress: {stageProgress(selected.status)}%</div>
-                <div style={{ ...progressTrackStyle, marginTop: 8, marginBottom: 18 }}><div style={{ ...progressFillStyle, width: `${stageProgress(selected.status)}%` }} /></div>
+                <div style={{ marginTop: 14, color: "#475569" }}>Lifecycle progress: {progressFromStatus(selected.status)}%</div>
+                <div style={{ marginTop: 8, height: 8, background: "#e2e8f0", borderRadius: 999 }}>
+                  <div style={{ width: `${progressFromStatus(selected.status)}%`, height: "100%", background: "#0f172a", borderRadius: 999 }} />
+                </div>
 
-                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 20 }}>
-                  {TABS.map((name) => (
-                    <button key={name} onClick={() => setTab(name)} style={tab === name ? activeTabStyle : tabStyle}>{name.charAt(0).toUpperCase() + name.slice(1)}</button>
+                <div style={{ display: "flex", gap: 10, marginTop: 18, flexWrap: "wrap" }}>
+                  {["identity", "story", "digital", "content", "sales", "live"].map((tab) => (
+                    <button
+                      key={tab}
+                      onClick={() => setActiveTab(tab)}
+                      style={{
+                        padding: "12px 18px",
+                        borderRadius: 16,
+                        border: activeTab === tab ? "1px solid #0f172a" : "1px solid #cbd5e1",
+                        background: activeTab === tab ? "#0f172a" : "#fff",
+                        color: activeTab === tab ? "#fff" : "#0f172a",
+                        cursor: "pointer",
+                        fontSize: 16,
+                      }}
+                    >
+                      {statusLabel(tab)}
+                    </button>
                   ))}
                 </div>
 
-                {tab === 'identity' && (
-                  <>
-                    <div style={infoCardStyle}>
-                      <div style={{ fontWeight: 700, marginBottom: 6 }}>Story readiness</div>
-                      <div style={{ color: '#46546f', fontSize: 14, marginBottom: 8 }}>The stronger the identity fields, the better the generated stories.</div>
-                      <div style={{ color: '#0b1730', fontWeight: 700 }}>{readiness}% ready</div>
-                    </div>
-                    <div style={{ height: 14 }} />
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-                      <Field label="Name" value={selected.name || ''} onChange={(e) => setDolls((prev) => prev.map((d) => d.id === selected.id ? { ...d, name: e.target.value } : d))} />
-                      <label>
-                        <div style={{ fontSize: 14, color: '#46546f', marginBottom: 8 }}>Theme</div>
-                        <select value={selected.theme_id || 'unassigned'} onChange={(e) => setDolls((prev) => prev.map((d) => d.id === selected.id ? { ...d, theme_id: e.target.value === 'unassigned' ? null : e.target.value } : d))} style={inputStyle(false)}>
-                          {themes.map((theme) => <option key={theme.id} value={theme.id}>{theme.name}</option>)}
+                {activeTab === "identity" ? (
+                  <div style={{ marginTop: 24 }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+                      <div>
+                        <label style={labelStyle}>Name</label>
+                        <input value={identity.name} onChange={(e) => setIdentity({ ...identity, name: e.target.value })} style={inputStyle} />
+                      </div>
+                      <div>
+                        <label style={labelStyle}>Theme</label>
+                        <select value={identity.theme_name} onChange={(e) => setIdentity({ ...identity, theme_name: e.target.value })} style={inputStyle}>
+                          {themes.map((theme) => (
+                            <option key={theme} value={theme}>{theme}</option>
+                          ))}
                         </select>
-                      </label>
-                      <Field label="Personality traits" value={selected.personality_traits || ''} onChange={(e) => setDolls((prev) => prev.map((d) => d.id === selected.id ? { ...d, personality_traits: e.target.value } : d))} placeholder="gentle, curious, caring" />
-                      <Field label="Emotional hook" value={selected.emotional_hook || ''} onChange={(e) => setDolls((prev) => prev.map((d) => d.id === selected.id ? { ...d, emotional_hook: e.target.value } : d))} placeholder="What makes this doll emotionally special?" />
-                    </div>
-                    <div style={{ height: 14 }} />
-                    <Field label="Short intro" value={selected.short_intro || ''} onChange={(e) => setDolls((prev) => prev.map((d) => d.id === selected.id ? { ...d, short_intro: e.target.value } : d))} textarea rows={5} placeholder="A short introduction that sounds like the doll." />
-                    <div style={{ marginTop: 18 }}>
-                      <button style={primaryButtonStyle} onClick={saveIdentity}>Save Identity</button>
-                    </div>
-                  </>
-                )}
-
-                {tab === 'story' && (
-                  <>
-                    <div style={infoCardStyle}>
-                      <div style={{ fontWeight: 700, marginBottom: 8 }}>Story Engine v2</div>
-                      <div style={{ color: '#46546f', fontSize: 14, marginBottom: 12 }}>Choose a tone, then generate a full story pack using the identity details you saved.</div>
-                      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-                        <select value={storyStyle} onChange={(e) => setStoryStyle(e.target.value)} style={{ ...inputStyle(false), width: 180 }}>
-                          {STORY_STYLES.map((style) => <option key={style.value} value={style.value}>{style.label}</option>)}
-                        </select>
-                        <button style={primaryButtonStyle} onClick={() => runDraft(storyStyle)}>Generate Story Pack</button>
-                        {STORY_STYLES.map((style) => (
-                          <button key={style.value} style={style.value === storyStyle ? activeChipStyle : chipStyle} onClick={() => runDraft(style.value)}>
-                            {style.label}
-                          </button>
-                        ))}
+                      </div>
+                      <div>
+                        <label style={labelStyle}>Personality traits</label>
+                        <input value={identity.personality_traits} onChange={(e) => setIdentity({ ...identity, personality_traits: e.target.value })} style={inputStyle} />
+                      </div>
+                      <div>
+                        <label style={labelStyle}>Emotional hook</label>
+                        <input value={identity.emotional_hook} onChange={(e) => setIdentity({ ...identity, emotional_hook: e.target.value })} style={inputStyle} />
                       </div>
                     </div>
-                    <div style={{ height: 14 }} />
-                    <Field label="Card teaser" value={storyPack.teaser} onChange={(e) => setStoryPack({ ...storyPack, teaser: e.target.value })} textarea rows={4} />
-                    <div style={{ height: 14 }} />
-                    <Field label="Main story" value={storyPack.main} onChange={(e) => setStoryPack({ ...storyPack, main: e.target.value })} textarea rows={5} />
-                    <div style={{ height: 14 }} />
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-                      <Field label="Mini story 1" value={storyPack.mini1} onChange={(e) => setStoryPack({ ...storyPack, mini1: e.target.value })} textarea rows={4} />
-                      <Field label="Mini story 2" value={storyPack.mini2} onChange={(e) => setStoryPack({ ...storyPack, mini2: e.target.value })} textarea rows={4} />
+
+                    <div style={{ marginTop: 16 }}>
+                      <label style={labelStyle}>Short intro</label>
+                      <textarea
+                        value={identity.short_intro}
+                        onChange={(e) => setIdentity({ ...identity, short_intro: e.target.value })}
+                        style={{ ...inputStyle, minHeight: 120, resize: "vertical" }}
+                      />
                     </div>
+
                     <div style={{ marginTop: 18 }}>
-                      <button style={primaryButtonStyle} onClick={saveStories}>Save Story</button>
+                      <button onClick={saveIdentity} style={primaryButton}>Save Identity</button>
                     </div>
-                  </>
-                )}
-
-                {tab === 'digital' && (
-                  <>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 14 }}>
-                      <Field label="Slug" value={digitalPack.slug} onChange={(e) => setDigitalPack({ ...digitalPack, slug: e.target.value })} />
-                      <Field label="Hero text" value={digitalPack.hero_text} onChange={(e) => setDigitalPack({ ...digitalPack, hero_text: e.target.value })} textarea rows={4} />
-                      <div style={infoCardStyle}>QR destination preview: {digitalPack.qr_url || 'No URL yet'}</div>
-                    </div>
-                    <div style={{ marginTop: 18 }}><button style={primaryButtonStyle} onClick={saveDigital}>Save Digital</button></div>
-                  </>
-                )}
-
-                {tab === 'content' && (
-                  <>
-                    <Field label="Instagram caption" value={contentPack.caption} onChange={(e) => setContentPack({ ...contentPack, caption: e.target.value })} textarea rows={4} />
-                    <div style={{ height: 14 }} />
-                    <Field label="Visual prompt" value={contentPack.visualPrompt} onChange={(e) => setContentPack({ ...contentPack, visualPrompt: e.target.value })} textarea rows={4} />
-                    <div style={{ marginTop: 18 }}><button style={primaryButtonStyle} onClick={saveContent}>Save Content</button></div>
-                  </>
-                )}
-
-                {tab === 'sales' && (
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-                    <label>
-                      <div style={{ fontSize: 14, color: '#46546f', marginBottom: 8 }}>Availability</div>
-                      <select value={selected.availability_status || 'available'} onChange={(e) => updateDollBase({ availability_status: e.target.value })} style={inputStyle(false)}>
-                        <option value="available">Available</option>
-                        <option value="reserved">Reserved</option>
-                        <option value="unavailable">Unavailable</option>
-                      </select>
-                    </label>
-                    <label>
-                      <div style={{ fontSize: 14, color: '#46546f', marginBottom: 8 }}>Sales status</div>
-                      <select value={selected.sales_status || 'not_sold'} onChange={(e) => updateDollBase({ sales_status: e.target.value })} style={inputStyle(false)}>
-                        <option value="not_sold">Not sold</option>
-                        <option value="sold">Sold</option>
-                        <option value="in_delivery">In delivery</option>
-                        <option value="delivered">Delivered</option>
-                      </select>
-                    </label>
                   </div>
-                )}
+                ) : null}
 
-                {tab === 'live' && (
-                  <div style={infoCardStyle}>This section will evolve into the living universe layer: seasonal stories, related dolls, activity drops, and cross-sell pathways.</div>
-                )}
+                {activeTab === "story" ? (
+                  <div style={{ marginTop: 24 }}>
+                    <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 20, padding: 16, marginBottom: 20 }}>
+                      <div style={{ fontWeight: 700, marginBottom: 12 }}>Story Engine v2</div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                        <label style={{ color: "#475569" }}>Tone</label>
+                        <select value={storyTone} onChange={(e) => setStoryTone(e.target.value)} style={{ ...inputStyle, width: 180 }}>
+                          {STORY_TONES.map((tone) => (
+                            <option key={tone} value={tone}>{tone}</option>
+                          ))}
+                        </select>
+                        <button onClick={() => applyTone("Gentle")} style={secondaryButton}>Gentle</button>
+                        <button onClick={() => applyTone("Playful")} style={secondaryButton}>Playful</button>
+                        <button onClick={() => applyTone("Magical")} style={secondaryButton}>Magical</button>
+                        <button onClick={() => applyTone(storyTone)} style={primaryButton}>Generate Story Pack</button>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label style={labelStyle}>Card teaser</label>
+                      <textarea value={story.teaser} onChange={(e) => setStory({ ...story, teaser: e.target.value })} style={{ ...inputStyle, minHeight: 120 }} />
+                    </div>
+
+                    <div style={{ marginTop: 16 }}>
+                      <label style={labelStyle}>Main story</label>
+                      <textarea value={story.mainStory} onChange={(e) => setStory({ ...story, mainStory: e.target.value })} style={{ ...inputStyle, minHeight: 120 }} />
+                    </div>
+
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 16 }}>
+                      <div>
+                        <label style={labelStyle}>Mini story 1</label>
+                        <textarea value={story.mini1} onChange={(e) => setStory({ ...story, mini1: e.target.value })} style={{ ...inputStyle, minHeight: 120 }} />
+                      </div>
+                      <div>
+                        <label style={labelStyle}>Mini story 2</label>
+                        <textarea value={story.mini2} onChange={(e) => setStory({ ...story, mini2: e.target.value })} style={{ ...inputStyle, minHeight: 120 }} />
+                      </div>
+                    </div>
+
+                    <div style={{ marginTop: 18 }}>
+                      <button onClick={saveStory} style={primaryButton}>Save Story</button>
+                    </div>
+                  </div>
+                ) : null}
+
+                {activeTab !== "identity" && activeTab !== "story" ? (
+                  <div style={{ marginTop: 24, padding: 20, border: "1px dashed #cbd5e1", borderRadius: 18, color: "#64748b" }}>
+                    {statusLabel(activeTab)} module is ready for the next build step.
+                  </div>
+                ) : null}
               </>
-            ) : <div>Select a doll to begin.</div>}
+            ) : (
+              <div style={{ color: "#64748b" }}>Create your first doll to begin.</div>
+            )}
           </section>
         </div>
       </div>
@@ -561,153 +562,40 @@ export default function HomePage() {
   );
 }
 
-function Metric({ label, value }) {
-  return (
-    <div style={metricCardStyle}>
-      <div style={{ color: '#5d6985', fontSize: 14 }}>{label}</div>
-      <div style={{ fontSize: 42, fontWeight: 700, marginTop: 6 }}>{value}</div>
-    </div>
-  );
-}
-
-function cardStyle() {
-  return {
-    background: '#ffffff',
-    border: '1px solid #d8deea',
-    borderRadius: 24,
-    padding: 22,
-    boxSizing: 'border-box',
-  };
-}
-
-const metricCardStyle = {
-  background: '#ffffff',
-  border: '1px solid #d8deea',
-  borderRadius: 24,
-  padding: 22,
-};
-
-const miniCardStyle = {
-  width: '100%',
-  background: '#f8fafc',
-  border: '1px solid #bfc8d9',
-  borderRadius: 20,
-  padding: 14,
-  textAlign: 'left',
-  cursor: 'pointer',
-  marginBottom: 10,
-};
-
-const primaryButtonStyle = {
-  background: '#0b1730',
-  color: '#fff',
-  border: 'none',
-  borderRadius: 16,
-  padding: '12px 16px',
+const labelStyle = {
+  display: "block",
   fontSize: 14,
-  fontWeight: 700,
-  cursor: 'pointer',
+  color: "#475569",
+  marginBottom: 8,
 };
 
-const secondaryButtonStyle = {
-  background: '#eef2f8',
-  color: '#0b1730',
-  border: '1px solid #d8deea',
+const inputStyle = {
+  width: "100%",
+  border: "1px solid #cbd5e1",
   borderRadius: 16,
-  padding: '12px 16px',
-  fontSize: 14,
-  cursor: 'pointer',
+  padding: "14px 16px",
+  fontSize: 16,
+  outline: "none",
+  boxSizing: "border-box",
+  background: "#fff",
 };
 
-const sectionTitleStyle = {
-  fontSize: 22,
-  fontWeight: 700,
-  margin: 0,
-  marginBottom: 16,
+const primaryButton = {
+  background: "#0f172a",
+  color: "#fff",
+  border: "none",
+  borderRadius: 16,
+  padding: "14px 18px",
+  fontSize: 16,
+  cursor: "pointer",
 };
 
-const tabStyle = {
-  background: '#fff',
-  border: '1px solid #bfc8d9',
-  borderRadius: 14,
-  padding: '10px 14px',
-  cursor: 'pointer',
-  textTransform: 'capitalize',
+const secondaryButton = {
+  background: "#e2e8f0",
+  color: "#0f172a",
+  border: "none",
+  borderRadius: 16,
+  padding: "14px 18px",
+  fontSize: 16,
+  cursor: "pointer",
 };
-
-const activeTabStyle = {
-  ...tabStyle,
-  background: '#0b1730',
-  color: '#fff',
-  borderColor: '#0b1730',
-};
-
-const chipStyle = {
-  background: '#fff',
-  color: '#0b1730',
-  border: '1px solid #bfc8d9',
-  borderRadius: 999,
-  padding: '10px 14px',
-  cursor: 'pointer',
-  fontSize: 13,
-};
-
-const activeChipStyle = {
-  ...chipStyle,
-  background: '#eaf0ff',
-  borderColor: '#6075ff',
-};
-
-const statusPillStyle = {
-  background: '#eef2f8',
-  color: '#0b1730',
-  borderRadius: 999,
-  padding: '8px 12px',
-  fontSize: 12,
-};
-
-const progressTrackStyle = {
-  height: 8,
-  background: '#d8deea',
-  borderRadius: 999,
-  overflow: 'hidden',
-  margin: '10px 0 8px',
-};
-
-const progressFillStyle = {
-  height: '100%',
-  background: '#0b1730',
-  borderRadius: 999,
-};
-
-const infoCardStyle = {
-  background: '#f8fafc',
-  border: '1px solid #d8deea',
-  borderRadius: 18,
-  padding: 16,
-};
-
-function inputStyle(textarea) {
-  return {
-    width: '100%',
-    borderRadius: 16,
-    border: '1px solid #bfc8d9',
-    padding: '12px 14px',
-    fontSize: 16,
-    boxSizing: 'border-box',
-    outline: 'none',
-    resize: textarea ? 'vertical' : 'none',
-    background: '#fff',
-  };
-}
-
-function bannerStyle(bg, border) {
-  return {
-    marginTop: 20,
-    background: bg,
-    border: `1px solid ${border}`,
-    borderRadius: 18,
-    padding: 14,
-    color: '#0b1730',
-  };
-}
