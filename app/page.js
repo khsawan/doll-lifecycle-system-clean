@@ -139,6 +139,13 @@ export default function Page() {
     cta: "",
   });
 
+  const [order, setOrder] = useState({
+  customer_name: "",
+  contact_info: "",
+  notes: "",
+  order_status: "new",
+});
+
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [activeTab, setActiveTab] = useState("identity");
@@ -216,6 +223,28 @@ export default function Page() {
     setContentPack({ caption, hook, blurb, cta });
   }
 
+  const { data: orders } = await supabase
+  .from("orders")
+  .select("*")
+  .eq("doll_id", dollId)
+  .limit(1);
+
+if (orders && orders.length > 0) {
+  setOrder({
+    customer_name: orders[0].customer_name || "",
+    contact_info: orders[0].contact_info || "",
+    notes: orders[0].notes || "",
+    order_status: orders[0].order_status || "new",
+  });
+} else {
+  setOrder({
+    customer_name: "",
+    contact_info: "",
+    notes: "",
+    order_status: "new",
+  });
+}
+  
   useEffect(() => {
     loadThemes();
     loadDolls();
@@ -451,6 +480,35 @@ export default function Page() {
     setNotice("Content pack saved.");
   }
 
+async function saveOrder() {
+  if (!selected) return;
+
+  await supabase.from("orders").delete().eq("doll_id", selected.id);
+
+  const { error } = await supabase.from("orders").insert({
+    doll_id: selected.id,
+    customer_name: order.customer_name,
+    contact_info: order.contact_info,
+    notes: order.notes,
+    order_status: order.order_status,
+  });
+
+  if (error) {
+    setError(error.message);
+    return;
+  }
+
+  await supabase
+    .from("dolls")
+    .update({
+      sales_status: order.order_status === "delivered" ? "sold" : "reserved",
+      status: "sales",
+    })
+    .eq("id", selected.id);
+
+  setNotice("Order saved.");
+}
+  
   async function copyToClipboard(value, successMessage) {
     try {
       await navigator.clipboard.writeText(value);
@@ -808,15 +866,59 @@ export default function Page() {
                   </div>
                 ) : null}
 
-                {activeTab !== "identity" && activeTab !== "story" && activeTab !== "digital" && activeTab !== "content" ? (
+                {activeTab === "sales" ? (
+                  <div style={{ marginTop: 24, display: "grid", gap: 20 }}>
+                    
+                    <div style={contentCardStyle}>
+                      <div style={sectionLabelStyle}>Customer Name</div>
+                      <input
+                        value={order.customer_name}
+                        onChange={(e) => setOrder({ ...order, customer_name: e.target.value })}
+                        style={inputStyle}
+                      />
+                    </div>
+                
+                    <div style={contentCardStyle}>
+                      <div style={sectionLabelStyle}>Contact Info</div>
+                      <input
+                        value={order.contact_info}
+                        onChange={(e) => setOrder({ ...order, contact_info: e.target.value })}
+                        style={inputStyle}
+                      />
+                    </div>
+                
+                    <div style={contentCardStyle}>
+                      <div style={sectionLabelStyle}>Order Status</div>
+                      <select
+                        value={order.order_status}
+                        onChange={(e) => setOrder({ ...order, order_status: e.target.value })}
+                        style={inputStyle}
+                      >
+                        <option value="new">New</option>
+                        <option value="confirmed">Confirmed</option>
+                        <option value="shipped">Shipped</option>
+                        <option value="delivered">Delivered</option>
+                      </select>
+                    </div>
+                
+                    <div style={contentCardStyle}>
+                      <div style={sectionLabelStyle}>Notes</div>
+                      <textarea
+                        value={order.notes}
+                        onChange={(e) => setOrder({ ...order, notes: e.target.value })}
+                        style={{ ...inputStyle, minHeight: 120 }}
+                      />
+                    </div>
+                
+                    <button onClick={saveOrder} style={primaryButton}>
+                      Save Order
+                    </button>
+                  </div>
+                ) : activeTab !== "identity" && activeTab !== "story" && activeTab !== "digital" && activeTab !== "content" ? (
                   <div style={{ marginTop: 24, padding: 20, border: "1px dashed #cbd5e1", borderRadius: 18, color: "#64748b" }}>
                     {statusLabel(activeTab)} module is ready for the next build step.
                   </div>
                 ) : null}
-              </>
-            ) : (
-              <div style={{ color: "#64748b" }}>Create your first doll to begin.</div>
-            )}
           </section>
         </div>
       </div>
@@ -954,3 +1056,4 @@ const contentGridStyle = {
   gridTemplateColumns: "1fr 1fr",
   gap: 20,
 };
+
