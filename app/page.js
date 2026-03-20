@@ -3,9 +3,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
 
-const DEFAULT_THEMES = ["Unassigned", "Nature Friends", "Little Dreamers", "Cozy World"];
-const STATUSES = ["new", "identity", "story", "digital", "content", "sales", "live"];
+const DEFAULT_THEMES = [
+  "Unassigned",
+  "Nature Friends",
+  "Little Dreamers",
+  "Cozy World",
+];
 const STORY_TONES = ["Gentle", "Playful", "Magical"];
+const STATUSES = ["new", "identity", "story", "digital", "content", "sales", "live"];
 const PUBLIC_BASE_URL = "https://doll-lifecycle-system-2.vercel.app";
 
 function slugify(value) {
@@ -17,14 +22,14 @@ function slugify(value) {
     .replace(/-+/g, "-");
 }
 
-function progressFromStatus(status) {
-  const idx = STATUSES.indexOf(status || "new");
-  return Math.max(13, Math.round(((Math.max(idx, 0) + 1) / STATUSES.length) * 100));
-}
-
 function statusLabel(status) {
   if (!status) return "New";
   return status.charAt(0).toUpperCase() + status.slice(1);
+}
+
+function progressFromStatus(status) {
+  const idx = STATUSES.indexOf(status || "new");
+  return idx >= 0 ? Math.round(((idx + 1) / STATUSES.length) * 100) : 0;
 }
 
 function cleanList(value) {
@@ -99,7 +104,23 @@ function buildContentPack(doll, storyData) {
   const intro = doll.short_intro || `${name} is a one-of-a-kind handmade doll with a story.`;
   const teaser = storyData.teaser || `Meet ${name}, a one-of-a-kind doll with a gentle story to tell.`;
 
-  function buildReadiness(identity, story, contentPack, order, publicUrl) {
+  return {
+    caption: `${name} ✨
+
+${intro}
+
+${teaser}
+
+Discover ${name}'s world: ${PUBLIC_BASE_URL}/doll/${slugify(name)}
+
+#MailleEtMerveille #DollWithAStory #HandmadeDoll`,
+    hook: `Meet ${name}, a one-of-a-kind doll from the ${theme} world.`,
+    blurb: `${name} is a handmade doll created to bring story, warmth, and imagination into everyday moments. ${hook}`,
+    cta: `Discover ${name}'s world`,
+  };
+}
+
+function buildReadiness(identity, story, contentPack, order, publicUrl) {
   const checks = {
     identity:
       Boolean(identity.name?.trim()) &&
@@ -107,22 +128,17 @@ function buildContentPack(doll, storyData) {
       Boolean(identity.personality_traits?.trim()) &&
       Boolean(identity.emotional_hook?.trim()) &&
       Boolean(identity.short_intro?.trim()),
-
     story:
       Boolean(story.teaser?.trim()) &&
       Boolean(story.mainStory?.trim()) &&
       Boolean(story.mini1?.trim()) &&
       Boolean(story.mini2?.trim()),
-
-    digital:
-      Boolean(publicUrl?.trim()),
-
+    digital: Boolean(publicUrl?.trim()),
     content:
       Boolean(contentPack.caption?.trim()) &&
       Boolean(contentPack.hook?.trim()) &&
       Boolean(contentPack.blurb?.trim()) &&
       Boolean(contentPack.cta?.trim()),
-
     sales:
       Boolean(order.customer_name?.trim()) &&
       Boolean(order.contact_info?.trim()) &&
@@ -137,21 +153,6 @@ function buildContentPack(doll, storyData) {
     checks,
     score,
     missing: entries.filter(([, value]) => !value).map(([key]) => key),
-  };
-}
-  
-  return {
-    caption: `${name} ✨
-${intro}
-
-${teaser}
-
-Discover ${name}'s world: ${PUBLIC_BASE_URL}/doll/${slugify(name)}
-
-#MailleEtMerveille #DollWithAStory #HandmadeDoll`,
-    hook: `Meet ${name}, a one-of-a-kind doll from the ${theme} world.`,
-    blurb: `${name} is a handmade doll created to bring story, warmth, and imagination into everyday moments. ${hook}`,
-    cta: `Discover ${name}'s world`,
   };
 }
 
@@ -206,6 +207,7 @@ export default function Page() {
   const selectedSlug = slugify(identity.name || selected?.name || selected?.internal_id || "");
   const publicPath = selectedSlug ? `/doll/${selectedSlug}` : "";
   const publicUrl = selectedSlug ? `${PUBLIC_BASE_URL}${publicPath}` : "";
+  const readiness = buildReadiness(identity, story, contentPack, order, publicUrl);
 
   async function loadThemes() {
     const { data } = await supabase.from("themes").select("name").order("name");
@@ -215,17 +217,26 @@ export default function Page() {
   }
 
   async function loadDolls() {
-    const { data, error } = await supabase.from("dolls").select("*").order("created_at", { ascending: true });
+    const { data, error } = await supabase
+      .from("dolls")
+      .select("*")
+      .order("created_at", { ascending: true });
+
     if (error) {
       setError(error.message);
       return;
     }
+
     const mapped = (data || []).map((d) => ({
       ...d,
       theme_name: d.theme_name || "Unassigned",
     }));
+
     setDolls(mapped);
-    if (!selectedId && mapped.length) setSelectedId(mapped[0].id);
+
+    if (!selectedId && mapped.length) {
+      setSelectedId(mapped[0].id);
+    }
   }
 
   async function loadDetails(dollId) {
@@ -324,7 +335,12 @@ export default function Page() {
       slug: slugify(computedName),
     };
 
-    const { data, error } = await supabase.from("dolls").insert(payload).select().single();
+    const { data, error } = await supabase
+      .from("dolls")
+      .insert(payload)
+      .select()
+      .single();
+
     if (error) {
       setError(error.message);
       return;
@@ -360,6 +376,7 @@ export default function Page() {
     };
 
     const { error } = await supabase.from("dolls").update(patch).eq("id", selected.id);
+
     if (error) {
       setError(error.message);
       return;
@@ -380,13 +397,38 @@ export default function Page() {
     await supabase.from("stories").delete().eq("doll_id", selected.id);
 
     const inserts = [
-      { doll_id: selected.id, type: "teaser", title: "Card teaser", content: story.teaser, sequence_order: 1 },
-      { doll_id: selected.id, type: "main", title: "Main story", content: story.mainStory, sequence_order: 2 },
-      { doll_id: selected.id, type: "mini", title: "Mini story 1", content: story.mini1, sequence_order: 3 },
-      { doll_id: selected.id, type: "mini", title: "Mini story 2", content: story.mini2, sequence_order: 4 },
+      {
+        doll_id: selected.id,
+        type: "teaser",
+        title: "Card teaser",
+        content: story.teaser,
+        sequence_order: 1,
+      },
+      {
+        doll_id: selected.id,
+        type: "main",
+        title: "Main story",
+        content: story.mainStory,
+        sequence_order: 2,
+      },
+      {
+        doll_id: selected.id,
+        type: "mini",
+        title: "Mini story 1",
+        content: story.mini1,
+        sequence_order: 3,
+      },
+      {
+        doll_id: selected.id,
+        type: "mini",
+        title: "Mini story 2",
+        content: story.mini2,
+        sequence_order: 4,
+      },
     ].filter((x) => (x.content || "").trim());
 
     const { error } = await supabase.from("stories").insert(inserts);
+
     if (error) {
       setError(error.message);
       return;
@@ -413,12 +455,14 @@ export default function Page() {
     if (!selected) return;
 
     const pack = buildStoryPack({ ...selected, ...identity }, tone);
+
     setStory({
       teaser: pack.teaser,
       mainStory: pack.mainStory,
       mini1: pack.mini1,
       mini2: pack.mini2,
     });
+
     setNotice(`${tone} story pack generated.`);
   }
 
@@ -429,12 +473,16 @@ export default function Page() {
     const next = STATUSES[Math.min(idx + 1, STATUSES.length - 1)];
 
     const { error } = await supabase.from("dolls").update({ status: next }).eq("id", selected.id);
+
     if (error) {
       setError(error.message);
       return;
     }
 
-    setDolls((prev) => prev.map((d) => (d.id === selected.id ? { ...d, status: next } : d)));
+    setDolls((prev) =>
+      prev.map((d) => (d.id === selected.id ? { ...d, status: next } : d))
+    );
+
     setNotice(`Advanced to ${statusLabel(next)}.`);
   }
 
@@ -442,12 +490,14 @@ export default function Page() {
     if (!selected) return;
 
     const pack = buildStoryPack({ ...selected, ...identity }, storyTone);
+
     setStory({
       teaser: pack.teaser,
       mainStory: pack.mainStory,
       mini1: pack.mini1,
       mini2: pack.mini2,
     });
+
     setNotice("Draft generated.");
   }
 
@@ -455,6 +505,7 @@ export default function Page() {
     if (!selected) return;
 
     const nextSlug = slugify(identity.name || selected.name || selected.internal_id);
+
     const { error } = await supabase
       .from("dolls")
       .update({ slug: nextSlug, status: "digital" })
@@ -470,6 +521,7 @@ export default function Page() {
         d.id === selected.id ? { ...d, slug: nextSlug, status: "digital" } : d
       )
     );
+
     setNotice("Digital layer activated.");
   }
 
@@ -529,6 +581,7 @@ export default function Page() {
     ].filter((x) => (x.content || "").trim());
 
     const { error } = await supabase.from("content_assets").insert(inserts);
+
     if (error) {
       setError(error.message);
       return;
@@ -547,6 +600,7 @@ export default function Page() {
     setDolls((prev) =>
       prev.map((d) => (d.id === selected.id ? { ...d, status: "content" } : d))
     );
+
     setNotice("Content pack saved.");
   }
 
@@ -593,33 +647,35 @@ export default function Page() {
 
     setNotice("Order saved.");
   }
-async function markAsLive() {
-  if (!selected) return;
 
-  if (readiness.score < 100) {
-    setError(`This doll is not fully ready yet. Missing: ${readiness.missing.join(", ")}`);
-    return;
+  async function markAsLive() {
+    if (!selected) return;
+
+    if (readiness.score < 100) {
+      setError(`This doll is not fully ready yet. Missing: ${readiness.missing.join(", ")}`);
+      return;
+    }
+
+    setError("");
+    setNotice("");
+
+    const { error } = await supabase
+      .from("dolls")
+      .update({ status: "live" })
+      .eq("id", selected.id);
+
+    if (error) {
+      setError(error.message);
+      return;
+    }
+
+    setDolls((prev) =>
+      prev.map((d) => (d.id === selected.id ? { ...d, status: "live" } : d))
+    );
+
+    setNotice("Doll marked as live.");
   }
 
-  setError("");
-  setNotice("");
-
-  const { error } = await supabase
-    .from("dolls")
-    .update({ status: "live" })
-    .eq("id", selected.id);
-
-  if (error) {
-    setError(error.message);
-    return;
-  }
-
-  setDolls((prev) =>
-    prev.map((d) => (d.id === selected.id ? { ...d, status: "live" } : d))
-  );
-
-  setNotice("Doll marked as live.");
-}
   async function copyToClipboard(value, successMessage) {
     try {
       await navigator.clipboard.writeText(value);
@@ -628,7 +684,7 @@ async function markAsLive() {
       setError("Clipboard copy failed.");
     }
   }
-const readiness = buildReadiness(identity, story, contentPack, order, publicUrl);
+
   const metrics = {
     total: dolls.length,
     live: dolls.filter((d) => d.status === "live").length,
@@ -1031,88 +1087,80 @@ const readiness = buildReadiness(identity, story, contentPack, order, publicUrl)
                       Save Order
                     </button>
                   </div>
-                )) : activeTab === "live" ? (
-  <div style={{ marginTop: 24, display: "grid", gap: 20 }}>
-    <div style={contentCardStyle}>
-      <div style={sectionLabelStyle}>Launch Readiness</div>
-      <div style={{ fontSize: 40, fontWeight: 700, marginBottom: 8 }}>
-        {readiness.score}%
-      </div>
-      <div style={{ color: "#64748b", fontSize: 16 }}>
-        This score reflects whether the doll is ready to be treated as a live release.
-      </div>
-    </div>
+                ) : activeTab === "live" ? (
+                  <div style={{ marginTop: 24, display: "grid", gap: 20 }}>
+                    <div style={contentCardStyle}>
+                      <div style={sectionLabelStyle}>Launch Readiness</div>
+                      <div style={{ fontSize: 40, fontWeight: 700, marginBottom: 8 }}>
+                        {readiness.score}%
+                      </div>
+                      <div style={{ color: "#64748b", fontSize: 16 }}>
+                        This score reflects whether the doll is ready to be treated as a live release.
+                      </div>
+                    </div>
 
-    <div style={contentCardStyle}>
-      <div style={sectionLabelStyle}>Checklist</div>
-      <div style={{ display: "grid", gap: 12 }}>
-        {[
-          ["Identity complete", readiness.checks.identity],
-          ["Story complete", readiness.checks.story],
-          ["Digital page ready", readiness.checks.digital],
-          ["Content pack ready", readiness.checks.content],
-          ["Sales info present", readiness.checks.sales],
-        ].map(([label, done]) => (
-          <div
-            key={label}
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              padding: "14px 16px",
-              border: "1px solid #e5e7eb",
-              borderRadius: 16,
-              background: done ? "#ecfdf5" : "#fff7ed",
-            }}
-          >
-            <div style={{ fontSize: 16 }}>{label}</div>
-            <div
-              style={{
-                fontWeight: 700,
-                color: done ? "#166534" : "#9a3412",
-              }}
-            >
-              {done ? "Ready" : "Missing"}
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
+                    <div style={contentCardStyle}>
+                      <div style={sectionLabelStyle}>Checklist</div>
+                      <div style={{ display: "grid", gap: 12 }}>
+                        {[
+                          ["Identity complete", readiness.checks.identity],
+                          ["Story complete", readiness.checks.story],
+                          ["Digital page ready", readiness.checks.digital],
+                          ["Content pack ready", readiness.checks.content],
+                          ["Sales info present", readiness.checks.sales],
+                        ].map(([label, done]) => (
+                          <div
+                            key={label}
+                            style={{
+                              display: "flex",
+                              justifyContent: "space-between",
+                              alignItems: "center",
+                              padding: "14px 16px",
+                              border: "1px solid #e5e7eb",
+                              borderRadius: 16,
+                              background: done ? "#ecfdf5" : "#fff7ed",
+                            }}
+                          >
+                            <div style={{ fontSize: 16 }}>{label}</div>
+                            <div style={{ fontWeight: 700, color: done ? "#166534" : "#9a3412" }}>
+                              {done ? "Ready" : "Missing"}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
 
-    <div style={contentCardStyle}>
-      <div style={sectionLabelStyle}>Missing Items</div>
-      {readiness.missing.length ? (
-        <ul style={{ margin: 0, paddingLeft: 18, color: "#64748b", lineHeight: 1.9 }}>
-          {readiness.missing.map((item) => (
-            <li key={item}>{item}</li>
-          ))}
-        </ul>
-      ) : (
-        <div style={{ color: "#166534", fontWeight: 600 }}>
-          Everything is ready.
-        </div>
-      )}
-    </div>
+                    <div style={contentCardStyle}>
+                      <div style={sectionLabelStyle}>Missing Items</div>
+                      {readiness.missing.length ? (
+                        <ul style={{ margin: 0, paddingLeft: 18, color: "#64748b", lineHeight: 1.9 }}>
+                          {readiness.missing.map((item) => (
+                            <li key={item}>{item}</li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <div style={{ color: "#166534", fontWeight: 600 }}>
+                          Everything is ready.
+                        </div>
+                      )}
+                    </div>
 
-    <div style={contentCardStyle}>
-      <div style={sectionLabelStyle}>Release Action</div>
-      <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-        <button onClick={markAsLive} style={primaryButton}>
-          Mark as Live
-        </button>
+                    <div style={contentCardStyle}>
+                      <div style={sectionLabelStyle}>Release Action</div>
+                      <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                        <button onClick={markAsLive} style={primaryButton}>
+                          Mark as Live
+                        </button>
 
-        {publicUrl ? (
-          <button
-            onClick={() => window.open(publicUrl, "_blank")}
-            style={secondaryButton}
-          >
-            Open Public Page
-          </button>
-        ) : null}
-      </div>
-    </div>
-  </div>
-) : null}
+                        {publicUrl ? (
+                          <button onClick={() => window.open(publicUrl, "_blank")} style={secondaryButton}>
+                            Open Public Page
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
               </>
             ) : (
               <div style={{ color: "#64748b" }}>Create your first doll to begin.</div>
