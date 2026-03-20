@@ -6,7 +6,11 @@ import { getSupabase } from '../lib/supabase';
 const supabase = getSupabase();
 const STATUSES = ['new', 'identity', 'story', 'digital', 'content', 'sales', 'live', 'archived'];
 const TABS = ['identity', 'story', 'digital', 'content', 'sales', 'live'];
-const STORY_STYLES = ['gentle', 'playful', 'magical'];
+const STORY_STYLES = [
+  { value: 'gentle', label: 'Gentle' },
+  { value: 'playful', label: 'Playful' },
+  { value: 'magical', label: 'Magical' },
+];
 
 function makeSlug(value) {
   return (value || '')
@@ -26,20 +30,6 @@ function statusLabel(status) {
   return status ? status.charAt(0).toUpperCase() + status.slice(1) : 'New';
 }
 
-function themeFlavor(themeName) {
-  const theme = (themeName || '').toLowerCase();
-  if (theme.includes('nature')) return 'soft farm paths, flowers, grass, and tiny animal friends';
-  if (theme.includes('dream')) return 'pastel skies, sleepy stars, and little wonders';
-  if (theme.includes('cozy')) return 'warm rooms, quiet corners, and everyday comfort';
-  return 'a gentle little world full of warmth and discovery';
-}
-
-function styleFlavor(style) {
-  if (style === 'magical') return 'with a magical sparkle in every little detail';
-  if (style === 'playful') return 'with a playful bounce and cheerful energy';
-  return 'with a calm, gentle warmth';
-}
-
 function splitTraits(text) {
   return (text || '')
     .split(',')
@@ -47,29 +37,11 @@ function splitTraits(text) {
     .filter(Boolean);
 }
 
-function buildStoryDraft(doll, themeName, style = 'gentle') {
-  const name = doll.name || 'This doll';
-  const theme = themeName || 'Unassigned';
-  const traits = splitTraits(doll.personality_traits);
-  const traitPhrase = traits.length ? traits.slice(0, 3).join(', ') : 'gentle, kind, and curious';
-  const hook = doll.emotional_hook || `${name} brings comfort and wonder wherever she goes`;
-  const intro = doll.short_intro || `${name} belongs to the ${theme} world and is known for being ${traitPhrase}.`;
-  const setting = themeFlavor(theme);
-  const tone = styleFlavor(style);
-
-  const teaser = `Meet ${name}, the little friend from ${theme} who ${hook.charAt(0).toLowerCase()}${hook.slice(1)}.`;
-
-  const main = `${name} lives in a world of ${setting}. ${intro} Each day begins with a tiny mission: to notice who needs care, courage, or a smile. ${tone} ${name} turns ordinary moments into little stories that feel safe, warm, and memorable.`;
-
-  const mini1 = `${name} once found the quietest little corner in ${theme.toLowerCase()} and made it feel welcoming just by staying kind and present.`;
-  const mini2 = `Whenever someone feels unsure, ${name} remembers that being ${traitPhrase.split(',')[0] || 'gentle'} can change the whole day.`;
-
-  const caption = `Meet ${name} 💛 A one-of-a-kind doll from our ${theme} world. ${hook}`;
-  const visualPrompt = `${theme} aesthetic, ${style} storybook mood, handmade doll feeling, child-friendly composition, warm premium brand look, soft natural lighting`;
-  const heroText = intro;
-  const slug = makeSlug(name || doll.internal_id);
-
-  return { teaser, main, mini1, mini2, caption, visualPrompt, heroText, slug };
+function firstSentence(text) {
+  const cleaned = (text || '').trim();
+  if (!cleaned) return '';
+  const match = cleaned.match(/[^.!?]+[.!?]?/);
+  return match ? match[0].trim() : cleaned;
 }
 
 function storyReadiness(doll) {
@@ -80,6 +52,78 @@ function storyReadiness(doll) {
   if (doll?.emotional_hook?.trim()) score += 20;
   if (doll?.short_intro?.trim()) score += 15;
   return score;
+}
+
+function themedSetting(themeName) {
+  const theme = (themeName || '').toLowerCase();
+  if (theme.includes('nature')) {
+    return 'soft grass, tiny flowers, and little animal friends';
+  }
+  if (theme.includes('dream')) {
+    return 'pastel skies, sleepy stars, and whispering clouds';
+  }
+  if (theme.includes('cozy')) {
+    return 'warm corners, gentle routines, and everyday comfort';
+  }
+  return 'little moments that feel warm, safe, and full of wonder';
+}
+
+function styleWords(style) {
+  if (style === 'playful') {
+    return {
+      tone: 'light, cheerful, and full of movement',
+      action: 'turns simple moments into cheerful little games',
+      sparkle: 'with a smile that makes every moment feel brighter',
+    };
+  }
+  if (style === 'magical') {
+    return {
+      tone: 'soft, glowing, and touched by wonder',
+      action: 'finds tiny sparkles of magic in ordinary moments',
+      sparkle: 'as if a little bit of moonlight follows every step',
+    };
+  }
+  return {
+    tone: 'soft, calm, and comforting',
+    action: 'makes each day feel gentle and reassuring',
+    sparkle: 'with a warmth that makes everyone feel safe',
+  };
+}
+
+function joinTraits(traits) {
+  if (!traits.length) return 'gentle, kind, and curious';
+  if (traits.length === 1) return traits[0];
+  if (traits.length === 2) return `${traits[0]} and ${traits[1]}`;
+  return `${traits[0]}, ${traits[1]}, and ${traits[2]}`;
+}
+
+function buildStoryDraft(doll, themeName, style = 'gentle') {
+  const name = doll.name?.trim() || 'This doll';
+  const theme = themeName || 'Maille & Merveille';
+  const traits = splitTraits(doll.personality_traits);
+  const traitPhrase = joinTraits(traits);
+  const hook = (doll.emotional_hook || '').trim();
+  const intro = (doll.short_intro || '').trim();
+  const setting = themedSetting(theme);
+  const words = styleWords(style);
+
+  const introSentence = intro || `${name} is ${traitPhrase}.`;
+  const hookSentence = hook || `${name} ${words.action}.`;
+  const compactHook = firstSentence(hookSentence).replace(/[.!?]+$/, '');
+
+  const teaser = `Meet ${name}, a one-of-a-kind friend who ${compactHook.charAt(0).toLowerCase()}${compactHook.slice(1)}.`;
+
+  const main = `${name} lives in a world of ${setting}. ${introSentence} ${hookSentence} In this ${words.tone} little world, ${name} notices the small things others miss and turns them into stories worth keeping ${words.sparkle}.`;
+
+  const mini1 = `${name} once found a quiet little moment and made it feel special just by being ${traits[0] || 'gentle'}.`;
+  const mini2 = `Whenever someone feels small or unsure, ${name} remembers that ${traits[1] || traits[0] || 'kindness'} can change the whole day.`;
+
+  const caption = `Meet ${name} 💛 ${compactHook}. A one-of-a-kind doll from our ${theme} world.`;
+  const visualPrompt = `${theme} storybook aesthetic, ${style} tone, handmade doll feeling, child-friendly composition, warm premium brand look, soft natural lighting, poetic and polished`; 
+  const heroText = introSentence;
+  const slug = makeSlug(name || doll.internal_id);
+
+  return { teaser, main, mini1, mini2, caption, visualPrompt, heroText, slug };
 }
 
 export default function HomePage() {
@@ -261,12 +305,14 @@ export default function HomePage() {
       }
       const qrExisting = await supabase.from('qr_codes').select('id').eq('doll_id', selected.id).maybeSingle();
       const qrPayload = { doll_id: selected.id, page_id: pageId, qr_url: `/worlds/${slug}`, version: 1, active: true };
-      const qrResult = qrExisting.data?.id
-        ? await supabase.from('qr_codes').update(qrPayload).eq('id', qrExisting.data.id)
-        : await supabase.from('qr_codes').insert(qrPayload);
-      if (qrResult.error) throw qrResult.error;
-      await updateDollBase({ slug, status: 'digital' });
-      setDigitalPack((prev) => ({ ...prev, slug, qr_url: `/worlds/${slug}` }));
+      if (qrExisting.data?.id) {
+        const { error } = await supabase.from('qr_codes').update(qrPayload).eq('id', qrExisting.data.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from('qr_codes').insert(qrPayload);
+        if (error) throw error;
+      }
+      await updateDollBase({ status: 'digital', slug });
       setNotice('Digital layer saved.');
     } catch (e) {
       setError(e.message || 'Failed to save digital layer.');
@@ -281,184 +327,387 @@ export default function HomePage() {
       const rows = [
         { doll_id: selected.id, type: 'instagram_caption', content: contentPack.caption, platform: 'instagram', status: 'draft' },
         { doll_id: selected.id, type: 'visual_prompt', content: contentPack.visualPrompt, platform: 'internal', status: 'draft' },
-      ].filter((row) => row.content?.trim());
+      ].filter((x) => x.content?.trim());
       if (rows.length) {
         const { error } = await supabase.from('content_assets').insert(rows);
         if (error) throw error;
       }
       await updateDollBase({ status: 'content' });
-      setNotice('Content saved.');
+      setNotice('Content assets saved.');
     } catch (e) {
       setError(e.message || 'Failed to save content.');
     } finally { setSaving(false); }
   }
 
-  function applyDraft(style) {
+  function runDraft(style = storyStyle) {
     if (!selected) return;
     const draft = buildStoryDraft(selected, selectedThemeName, style);
     setStoryStyle(style);
     setStoryPack({ teaser: draft.teaser, main: draft.main, mini1: draft.mini1, mini2: draft.mini2 });
     setContentPack({ caption: draft.caption, visualPrompt: draft.visualPrompt });
-    setDigitalPack({ slug: draft.slug, hero_text: draft.heroText, qr_url: `/worlds/${draft.slug}` });
-    setNotice(`${statusLabel(style)} story draft generated. Review and save each section to keep it.`);
+    setDigitalPack((prev) => ({ ...prev, slug: draft.slug, hero_text: draft.heroText, qr_url: `/worlds/${draft.slug}` }));
+    setNotice(`Generated ${style} story pack.`);
+    setTab('story');
   }
 
-  function generateAllDrafts() {
+  async function advanceStage() {
     if (!selected) return;
-    if (readiness < 60) {
-      setError('Complete more of the identity first. Add personality traits, an emotional hook, and a short intro before generating stories.');
-      return;
-    }
-    setError('');
-    applyDraft(storyStyle);
+    const idx = STATUSES.indexOf(selected.status || 'new');
+    const next = STATUSES[Math.min(idx + 1, STATUSES.length - 1)];
+    await updateDollBase({ status: next });
+  }
+
+  function Field({ label, value, onChange, textarea = false, rows = 4, placeholder = '' }) {
+    return (
+      <label style={{ display: 'block' }}>
+        <div style={{ fontSize: 14, color: '#46546f', marginBottom: 8 }}>{label}</div>
+        {textarea ? (
+          <textarea value={value} onChange={onChange} rows={rows} placeholder={placeholder} style={inputStyle(true)} />
+        ) : (
+          <input value={value} onChange={onChange} placeholder={placeholder} style={inputStyle(false)} />
+        )}
+      </label>
+    );
   }
 
   return (
-    <main className="container">
-      <div className="header">
-        <div className="eyebrow">Maille & Merveille</div>
-        <h1 className="title">Doll Lifecycle System</h1>
-        <div className="subtitle">A full internal pipeline that transforms every handmade doll into a character, a living digital story asset, and a scalable brand node.</div>
-      </div>
+    <main style={{ padding: 28, fontFamily: 'Arial, sans-serif', background: '#f6f8fb', minHeight: '100vh', color: '#0b1730' }}>
+      <div style={{ maxWidth: 1180, margin: '0 auto' }}>
+        <div style={{ letterSpacing: 3, fontSize: 12, color: '#5d6985', marginBottom: 8 }}>MAILLE & MERVEILLE</div>
+        <h1 style={{ fontSize: 48, margin: 0 }}>Doll Lifecycle System</h1>
+        <p style={{ maxWidth: 860, fontSize: 16, color: '#46546f', marginTop: 8 }}>
+          A full internal pipeline that transforms every handmade doll into a character, a living digital story asset, and a scalable brand node.
+        </p>
 
-      {error && <div className="error">{error}</div>}
-      {notice && <div className="notice">{notice}</div>}
+        {notice ? <div style={bannerStyle('#e8f8ee', '#4caf72')}>{notice}</div> : null}
+        {error ? <div style={bannerStyle('#fdeced', '#df6c78')}>{error}</div> : null}
 
-      <div className="metrics">
-        <div className="metric"><div className="metric-label">Total Dolls</div><div className="metric-value">{metrics.total}</div></div>
-        <div className="metric"><div className="metric-label">Live Worlds</div><div className="metric-value">{metrics.live}</div></div>
-        <div className="metric"><div className="metric-label">Available</div><div className="metric-value">{metrics.available}</div></div>
-        <div className="metric"><div className="metric-label">Sold</div><div className="metric-value">{metrics.sold}</div></div>
-      </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginTop: 24 }}>
+          <Metric label="Total Dolls" value={metrics.total} />
+          <Metric label="Live Worlds" value={metrics.live} />
+          <Metric label="Available" value={metrics.available} />
+          <Metric label="Sold" value={metrics.sold} />
+        </div>
 
-      <div className="layout">
-        <section className="panel">
-          <h2>Pipeline Control</h2>
-          <div className="field"><label>Doll name or temporary label</label><input className="input" value={newDoll.name} onChange={(e) => setNewDoll((p) => ({ ...p, name: e.target.value }))} /></div>
-          <div className="field"><label>Artist name</label><input className="input" value={newDoll.artist_name} onChange={(e) => setNewDoll((p) => ({ ...p, artist_name: e.target.value }))} /></div>
-          <div className="field"><label>Theme</label><select className="select" value={newDoll.theme_id} onChange={(e) => setNewDoll((p) => ({ ...p, theme_id: e.target.value }))}>{themes.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</select></div>
-          <div className="button-row"><button className="btn" disabled={saving} onClick={createDoll}>Create Intake Entry</button><button className="btn secondary" onClick={loadBase}>Refresh</button></div>
-          <hr style={{ margin: '20px 0', border: 0, borderTop: '1px solid #e2e8f0' }} />
-          <div className="small" style={{ marginBottom: 10 }}>Dolls</div>
-          <div className="list">
-            {loading ? <div className="small">Loading dolls…</div> : dolls.length === 0 ? <div className="small">No dolls yet. Add your first one.</div> : dolls.map((d) => (
-              <div key={d.id} className={`card ${selectedId === d.id ? 'active' : ''}`} onClick={() => setSelectedId(d.id)}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                  <div>
-                    <div className="card-title">{d.name || d.internal_id}</div>
-                    <div className="card-meta">{d.internal_id} · {themes.find((t) => t.id === d.theme_id)?.name || 'Unassigned'}</div>
-                  </div>
-                  <span className="badge">{statusLabel(d.status)}</span>
-                </div>
-                <div className="progress"><div style={{ width: `${stageProgress(d.status)}%` }} /></div>
-                <div className="card-meta">{stageProgress(d.status)}% through lifecycle</div>
-              </div>
-            ))}
-          </div>
-        </section>
+        <div style={{ display: 'grid', gridTemplateColumns: '340px 1fr', gap: 22, marginTop: 24 }}>
+          <section style={cardStyle()}>
+            <h2 style={sectionTitleStyle}>Pipeline Control</h2>
+            <Field label="Doll name or temporary label" value={newDoll.name} onChange={(e) => setNewDoll({ ...newDoll, name: e.target.value })} />
+            <div style={{ height: 10 }} />
+            <Field label="Artist name" value={newDoll.artist_name} onChange={(e) => setNewDoll({ ...newDoll, artist_name: e.target.value })} />
+            <div style={{ height: 10 }} />
+            <label>
+              <div style={{ fontSize: 14, color: '#46546f', marginBottom: 8 }}>Theme</div>
+              <select value={newDoll.theme_id} onChange={(e) => setNewDoll({ ...newDoll, theme_id: e.target.value })} style={inputStyle(false)}>
+                {themes.map((theme) => <option key={theme.id} value={theme.id}>{theme.name}</option>)}
+              </select>
+            </label>
+            <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
+              <button style={primaryButtonStyle} onClick={createDoll} disabled={saving}>{saving ? 'Saving...' : 'Create Intake Entry'}</button>
+              <button style={secondaryButtonStyle} onClick={loadBase}>Refresh</button>
+            </div>
 
-        <section className="panel">
-          {!selected ? <div className="small">Select a doll to continue.</div> : (
-            <>
-              <div className="section-top">
-                <div>
-                  <h2 style={{ marginBottom: 6 }}>{selected.name || selected.internal_id}</h2>
-                  <div className="small">{selected.internal_id} · {selectedThemeName}</div>
-                </div>
-                <div className="button-row">
-                  <button className="btn secondary" onClick={generateAllDrafts}>Generate Draft</button>
-                  <button className="btn" onClick={() => updateDollBase({ status: STATUSES[Math.min(STATUSES.indexOf(selected.status) + 1, STATUSES.length - 1)] })}>Advance Stage</button>
-                </div>
-              </div>
-
-              <div className="progress" style={{ marginTop: 16 }}><div style={{ width: `${stageProgress(selected.status)}%` }} /></div>
-              <div className="small">Lifecycle progress: {stageProgress(selected.status)}%</div>
-
-              <div className="tabs">
-                {TABS.map((name) => <button key={name} className={`tab ${tab === name ? 'active' : ''}`} onClick={() => setTab(name)}>{statusLabel(name)}</button>)}
-              </div>
-
-              {tab === 'identity' && (
-                <>
-                  <div className="grid2">
-                    <div className="field"><label>Name</label><input className="input" value={selected.name || ''} onChange={(e) => setDolls((prev) => prev.map((d) => d.id === selected.id ? { ...d, name: e.target.value } : d))} /></div>
-                    <div className="field"><label>Theme</label><select className="select" value={selected.theme_id || 'unassigned'} onChange={(e) => setDolls((prev) => prev.map((d) => d.id === selected.id ? { ...d, theme_id: e.target.value === 'unassigned' ? null : e.target.value } : d))}>{themes.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</select></div>
-                    <div className="field"><label>Personality traits</label><input className="input" value={selected.personality_traits || ''} onChange={(e) => setDolls((prev) => prev.map((d) => d.id === selected.id ? { ...d, personality_traits: e.target.value } : d))} /></div>
-                    <div className="field"><label>Emotional hook</label><input className="input" value={selected.emotional_hook || ''} onChange={(e) => setDolls((prev) => prev.map((d) => d.id === selected.id ? { ...d, emotional_hook: e.target.value } : d))} /></div>
-                  </div>
-                  <div className="field"><label>Short intro</label><textarea className="textarea" value={selected.short_intro || ''} onChange={(e) => setDolls((prev) => prev.map((d) => d.id === selected.id ? { ...d, short_intro: e.target.value } : d))} /></div>
-                  <div className="placeholder" style={{ marginBottom: 14 }}>
-                    <strong>Story readiness:</strong> {readiness}%<br />
-                    Add a theme, personality, emotional hook, and short intro to unlock stronger story generation.
-                  </div>
-                  <button className="btn" disabled={saving} onClick={saveIdentity}>Save Identity</button>
-                </>
-              )}
-
-              {tab === 'story' && (
-                <>
-                  <div className="placeholder" style={{ marginBottom: 16 }}>
-                    <strong>Story Engine</strong><br />
-                    Choose a tone, generate a story pack from the identity, then refine and save it.
-                  </div>
-                  <div className="grid2" style={{ marginBottom: 14 }}>
-                    <div className="field">
-                      <label>Story style</label>
-                      <select className="select" value={storyStyle} onChange={(e) => setStoryStyle(e.target.value)}>
-                        {STORY_STYLES.map((style) => <option key={style} value={style}>{statusLabel(style)}</option>)}
-                      </select>
+            <div style={{ borderTop: '1px solid #d8deea', marginTop: 18, paddingTop: 18 }}>
+              <div style={{ fontSize: 14, color: '#5d6985', marginBottom: 10 }}>Dolls</div>
+              {loading ? <div>Loading…</div> : dolls.map((doll) => (
+                <button key={doll.id} onClick={() => setSelectedId(doll.id)} style={{ ...miniCardStyle, borderColor: selectedId === doll.id ? '#0b1730' : '#bfc8d9' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: 18 }}>{doll.name || doll.internal_id}</div>
+                      <div style={{ fontSize: 13, color: '#71809d', marginTop: 4 }}>{doll.internal_id} · {themes.find((t) => t.id === doll.theme_id)?.name || 'Unassigned'}</div>
                     </div>
-                    <div className="field">
-                      <label>Quick actions</label>
-                      <div className="button-row">
-                        <button className="btn secondary" onClick={() => applyDraft('gentle')}>Gentle Draft</button>
-                        <button className="btn secondary" onClick={() => applyDraft('playful')}>Playful Draft</button>
-                        <button className="btn secondary" onClick={() => applyDraft('magical')}>Magical Draft</button>
+                    <div style={statusPillStyle}>{statusLabel(doll.status)}</div>
+                  </div>
+                  <div style={progressTrackStyle}><div style={{ ...progressFillStyle, width: `${stageProgress(doll.status)}%` }} /></div>
+                  <div style={{ fontSize: 13, color: '#71809d' }}>{stageProgress(doll.status)}% through lifecycle</div>
+                </button>
+              ))}
+            </div>
+          </section>
+
+          <section style={cardStyle()}>
+            {selected ? (
+              <>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'flex-start' }}>
+                  <div>
+                    <h2 style={{ ...sectionTitleStyle, marginBottom: 4 }}>{selected.name || selected.internal_id}</h2>
+                    <div style={{ color: '#71809d' }}>{selected.internal_id} · {selectedThemeName}</div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 10 }}>
+                    <button style={secondaryButtonStyle} onClick={() => runDraft(storyStyle)}>Generate Draft</button>
+                    <button style={primaryButtonStyle} onClick={advanceStage}>Advance Stage</button>
+                  </div>
+                </div>
+
+                <div style={{ marginTop: 16, color: '#5d6985', fontSize: 14 }}>Lifecycle progress: {stageProgress(selected.status)}%</div>
+                <div style={{ ...progressTrackStyle, marginTop: 8, marginBottom: 18 }}><div style={{ ...progressFillStyle, width: `${stageProgress(selected.status)}%` }} /></div>
+
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 20 }}>
+                  {TABS.map((name) => (
+                    <button key={name} onClick={() => setTab(name)} style={tab === name ? activeTabStyle : tabStyle}>{name.charAt(0).toUpperCase() + name.slice(1)}</button>
+                  ))}
+                </div>
+
+                {tab === 'identity' && (
+                  <>
+                    <div style={infoCardStyle}>
+                      <div style={{ fontWeight: 700, marginBottom: 6 }}>Story readiness</div>
+                      <div style={{ color: '#46546f', fontSize: 14, marginBottom: 8 }}>The stronger the identity fields, the better the generated stories.</div>
+                      <div style={{ color: '#0b1730', fontWeight: 700 }}>{readiness}% ready</div>
+                    </div>
+                    <div style={{ height: 14 }} />
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                      <Field label="Name" value={selected.name || ''} onChange={(e) => setDolls((prev) => prev.map((d) => d.id === selected.id ? { ...d, name: e.target.value } : d))} />
+                      <label>
+                        <div style={{ fontSize: 14, color: '#46546f', marginBottom: 8 }}>Theme</div>
+                        <select value={selected.theme_id || 'unassigned'} onChange={(e) => setDolls((prev) => prev.map((d) => d.id === selected.id ? { ...d, theme_id: e.target.value === 'unassigned' ? null : e.target.value } : d))} style={inputStyle(false)}>
+                          {themes.map((theme) => <option key={theme.id} value={theme.id}>{theme.name}</option>)}
+                        </select>
+                      </label>
+                      <Field label="Personality traits" value={selected.personality_traits || ''} onChange={(e) => setDolls((prev) => prev.map((d) => d.id === selected.id ? { ...d, personality_traits: e.target.value } : d))} placeholder="gentle, curious, caring" />
+                      <Field label="Emotional hook" value={selected.emotional_hook || ''} onChange={(e) => setDolls((prev) => prev.map((d) => d.id === selected.id ? { ...d, emotional_hook: e.target.value } : d))} placeholder="What makes this doll emotionally special?" />
+                    </div>
+                    <div style={{ height: 14 }} />
+                    <Field label="Short intro" value={selected.short_intro || ''} onChange={(e) => setDolls((prev) => prev.map((d) => d.id === selected.id ? { ...d, short_intro: e.target.value } : d))} textarea rows={5} placeholder="A short introduction that sounds like the doll." />
+                    <div style={{ marginTop: 18 }}>
+                      <button style={primaryButtonStyle} onClick={saveIdentity}>Save Identity</button>
+                    </div>
+                  </>
+                )}
+
+                {tab === 'story' && (
+                  <>
+                    <div style={infoCardStyle}>
+                      <div style={{ fontWeight: 700, marginBottom: 8 }}>Story Engine v2</div>
+                      <div style={{ color: '#46546f', fontSize: 14, marginBottom: 12 }}>Choose a tone, then generate a full story pack using the identity details you saved.</div>
+                      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+                        <select value={storyStyle} onChange={(e) => setStoryStyle(e.target.value)} style={{ ...inputStyle(false), width: 180 }}>
+                          {STORY_STYLES.map((style) => <option key={style.value} value={style.value}>{style.label}</option>)}
+                        </select>
+                        <button style={primaryButtonStyle} onClick={() => runDraft(storyStyle)}>Generate Story Pack</button>
+                        {STORY_STYLES.map((style) => (
+                          <button key={style.value} style={style.value === storyStyle ? activeChipStyle : chipStyle} onClick={() => runDraft(style.value)}>
+                            {style.label}
+                          </button>
+                        ))}
                       </div>
                     </div>
+                    <div style={{ height: 14 }} />
+                    <Field label="Card teaser" value={storyPack.teaser} onChange={(e) => setStoryPack({ ...storyPack, teaser: e.target.value })} textarea rows={4} />
+                    <div style={{ height: 14 }} />
+                    <Field label="Main story" value={storyPack.main} onChange={(e) => setStoryPack({ ...storyPack, main: e.target.value })} textarea rows={5} />
+                    <div style={{ height: 14 }} />
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                      <Field label="Mini story 1" value={storyPack.mini1} onChange={(e) => setStoryPack({ ...storyPack, mini1: e.target.value })} textarea rows={4} />
+                      <Field label="Mini story 2" value={storyPack.mini2} onChange={(e) => setStoryPack({ ...storyPack, mini2: e.target.value })} textarea rows={4} />
+                    </div>
+                    <div style={{ marginTop: 18 }}>
+                      <button style={primaryButtonStyle} onClick={saveStories}>Save Story</button>
+                    </div>
+                  </>
+                )}
+
+                {tab === 'digital' && (
+                  <>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 14 }}>
+                      <Field label="Slug" value={digitalPack.slug} onChange={(e) => setDigitalPack({ ...digitalPack, slug: e.target.value })} />
+                      <Field label="Hero text" value={digitalPack.hero_text} onChange={(e) => setDigitalPack({ ...digitalPack, hero_text: e.target.value })} textarea rows={4} />
+                      <div style={infoCardStyle}>QR destination preview: {digitalPack.qr_url || 'No URL yet'}</div>
+                    </div>
+                    <div style={{ marginTop: 18 }}><button style={primaryButtonStyle} onClick={saveDigital}>Save Digital</button></div>
+                  </>
+                )}
+
+                {tab === 'content' && (
+                  <>
+                    <Field label="Instagram caption" value={contentPack.caption} onChange={(e) => setContentPack({ ...contentPack, caption: e.target.value })} textarea rows={4} />
+                    <div style={{ height: 14 }} />
+                    <Field label="Visual prompt" value={contentPack.visualPrompt} onChange={(e) => setContentPack({ ...contentPack, visualPrompt: e.target.value })} textarea rows={4} />
+                    <div style={{ marginTop: 18 }}><button style={primaryButtonStyle} onClick={saveContent}>Save Content</button></div>
+                  </>
+                )}
+
+                {tab === 'sales' && (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                    <label>
+                      <div style={{ fontSize: 14, color: '#46546f', marginBottom: 8 }}>Availability</div>
+                      <select value={selected.availability_status || 'available'} onChange={(e) => updateDollBase({ availability_status: e.target.value })} style={inputStyle(false)}>
+                        <option value="available">Available</option>
+                        <option value="reserved">Reserved</option>
+                        <option value="unavailable">Unavailable</option>
+                      </select>
+                    </label>
+                    <label>
+                      <div style={{ fontSize: 14, color: '#46546f', marginBottom: 8 }}>Sales status</div>
+                      <select value={selected.sales_status || 'not_sold'} onChange={(e) => updateDollBase({ sales_status: e.target.value })} style={inputStyle(false)}>
+                        <option value="not_sold">Not sold</option>
+                        <option value="sold">Sold</option>
+                        <option value="in_delivery">In delivery</option>
+                        <option value="delivered">Delivered</option>
+                      </select>
+                    </label>
                   </div>
-                  <div className="field"><label>Card teaser</label><textarea className="textarea" value={storyPack.teaser} onChange={(e) => setStoryPack((p) => ({ ...p, teaser: e.target.value }))} /></div>
-                  <div className="field"><label>Main story</label><textarea className="textarea" value={storyPack.main} onChange={(e) => setStoryPack((p) => ({ ...p, main: e.target.value }))} /></div>
-                  <div className="grid2">
-                    <div className="field"><label>Mini story 1</label><textarea className="textarea" value={storyPack.mini1} onChange={(e) => setStoryPack((p) => ({ ...p, mini1: e.target.value }))} /></div>
-                    <div className="field"><label>Mini story 2</label><textarea className="textarea" value={storyPack.mini2} onChange={(e) => setStoryPack((p) => ({ ...p, mini2: e.target.value }))} /></div>
-                  </div>
-                  <div className="button-row">
-                    <button className="btn secondary" onClick={generateAllDrafts}>Generate Story Pack</button>
-                    <button className="btn" disabled={saving} onClick={saveStories}>Save Story</button>
-                  </div>
-                </>
-              )}
+                )}
 
-              {tab === 'digital' && (
-                <>
-                  <div className="field"><label>Page slug</label><input className="input" value={digitalPack.slug} onChange={(e) => setDigitalPack((p) => ({ ...p, slug: e.target.value }))} /></div>
-                  <div className="field"><label>Hero text</label><textarea className="textarea" value={digitalPack.hero_text} onChange={(e) => setDigitalPack((p) => ({ ...p, hero_text: e.target.value }))} /></div>
-                  <div className="placeholder">QR destination preview: {digitalPack.qr_url || 'No URL assigned yet'}</div>
-                  <button className="btn" disabled={saving} onClick={saveDigital}>Save Digital Layer</button>
-                </>
-              )}
-
-              {tab === 'content' && (
-                <>
-                  <div className="field"><label>Instagram caption</label><textarea className="textarea" value={contentPack.caption} onChange={(e) => setContentPack((p) => ({ ...p, caption: e.target.value }))} /></div>
-                  <div className="field"><label>Visual prompt</label><textarea className="textarea" value={contentPack.visualPrompt} onChange={(e) => setContentPack((p) => ({ ...p, visualPrompt: e.target.value }))} /></div>
-                  <button className="btn" disabled={saving} onClick={saveContent}>Save Content</button>
-                </>
-              )}
-
-              {tab === 'sales' && (
-                <div className="grid2">
-                  <div className="field"><label>Availability</label><select className="select" value={selected.availability_status || 'available'} onChange={(e) => updateDollBase({ availability_status: e.target.value })}><option value="available">Available</option><option value="reserved">Reserved</option><option value="unavailable">Unavailable</option></select></div>
-                  <div className="field"><label>Sales status</label><select className="select" value={selected.sales_status || 'not_sold'} onChange={(e) => updateDollBase({ sales_status: e.target.value })}><option value="not_sold">Not sold</option><option value="sold">Sold</option><option value="in_delivery">In delivery</option><option value="delivered">Delivered</option></select></div>
-                </div>
-              )}
-
-              {tab === 'live' && <div className="placeholder">This section is reserved for the living universe manager: seasonal stories, activities, related dolls, and post-sale growth.</div>}
-            </>
-          )}
-        </section>
+                {tab === 'live' && (
+                  <div style={infoCardStyle}>This section will evolve into the living universe layer: seasonal stories, related dolls, activity drops, and cross-sell pathways.</div>
+                )}
+              </>
+            ) : <div>Select a doll to begin.</div>}
+          </section>
+        </div>
       </div>
     </main>
   );
+}
+
+function Metric({ label, value }) {
+  return (
+    <div style={metricCardStyle}>
+      <div style={{ color: '#5d6985', fontSize: 14 }}>{label}</div>
+      <div style={{ fontSize: 42, fontWeight: 700, marginTop: 6 }}>{value}</div>
+    </div>
+  );
+}
+
+function cardStyle() {
+  return {
+    background: '#ffffff',
+    border: '1px solid #d8deea',
+    borderRadius: 24,
+    padding: 22,
+    boxSizing: 'border-box',
+  };
+}
+
+const metricCardStyle = {
+  background: '#ffffff',
+  border: '1px solid #d8deea',
+  borderRadius: 24,
+  padding: 22,
+};
+
+const miniCardStyle = {
+  width: '100%',
+  background: '#f8fafc',
+  border: '1px solid #bfc8d9',
+  borderRadius: 20,
+  padding: 14,
+  textAlign: 'left',
+  cursor: 'pointer',
+  marginBottom: 10,
+};
+
+const primaryButtonStyle = {
+  background: '#0b1730',
+  color: '#fff',
+  border: 'none',
+  borderRadius: 16,
+  padding: '12px 16px',
+  fontSize: 14,
+  fontWeight: 700,
+  cursor: 'pointer',
+};
+
+const secondaryButtonStyle = {
+  background: '#eef2f8',
+  color: '#0b1730',
+  border: '1px solid #d8deea',
+  borderRadius: 16,
+  padding: '12px 16px',
+  fontSize: 14,
+  cursor: 'pointer',
+};
+
+const sectionTitleStyle = {
+  fontSize: 22,
+  fontWeight: 700,
+  margin: 0,
+  marginBottom: 16,
+};
+
+const tabStyle = {
+  background: '#fff',
+  border: '1px solid #bfc8d9',
+  borderRadius: 14,
+  padding: '10px 14px',
+  cursor: 'pointer',
+  textTransform: 'capitalize',
+};
+
+const activeTabStyle = {
+  ...tabStyle,
+  background: '#0b1730',
+  color: '#fff',
+  borderColor: '#0b1730',
+};
+
+const chipStyle = {
+  background: '#fff',
+  color: '#0b1730',
+  border: '1px solid #bfc8d9',
+  borderRadius: 999,
+  padding: '10px 14px',
+  cursor: 'pointer',
+  fontSize: 13,
+};
+
+const activeChipStyle = {
+  ...chipStyle,
+  background: '#eaf0ff',
+  borderColor: '#6075ff',
+};
+
+const statusPillStyle = {
+  background: '#eef2f8',
+  color: '#0b1730',
+  borderRadius: 999,
+  padding: '8px 12px',
+  fontSize: 12,
+};
+
+const progressTrackStyle = {
+  height: 8,
+  background: '#d8deea',
+  borderRadius: 999,
+  overflow: 'hidden',
+  margin: '10px 0 8px',
+};
+
+const progressFillStyle = {
+  height: '100%',
+  background: '#0b1730',
+  borderRadius: 999,
+};
+
+const infoCardStyle = {
+  background: '#f8fafc',
+  border: '1px solid #d8deea',
+  borderRadius: 18,
+  padding: 16,
+};
+
+function inputStyle(textarea) {
+  return {
+    width: '100%',
+    borderRadius: 16,
+    border: '1px solid #bfc8d9',
+    padding: '12px 14px',
+    fontSize: 16,
+    boxSizing: 'border-box',
+    outline: 'none',
+    resize: textarea ? 'vertical' : 'none',
+    background: '#fff',
+  };
+}
+
+function bannerStyle(bg, border) {
+  return {
+    marginTop: 20,
+    background: bg,
+    border: `1px solid ${border}`,
+    borderRadius: 18,
+    padding: 14,
+    color: '#0b1730',
+  };
 }
