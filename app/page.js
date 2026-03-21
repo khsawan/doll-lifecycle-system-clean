@@ -224,6 +224,8 @@ export default function Page() {
       : "generated";
 
   async function loadThemes() {
+    if (!supabase) return;
+
     const { data } = await supabase.from("themes").select("name").order("name");
     const dbThemes = (data || []).map((x) => x.name).filter(Boolean);
     const merged = Array.from(new Set(["Unassigned", ...dbThemes, ...DEFAULT_THEMES]));
@@ -231,6 +233,11 @@ export default function Page() {
   }
 
   async function loadDolls() {
+    if (!supabase) {
+      setError("Supabase environment variables are missing.");
+      return;
+    }
+
     const { data, error } = await supabase
       .from("dolls")
       .select("*")
@@ -808,8 +815,6 @@ export default function Page() {
     const { error } = await supabase.from("orders").insert({
       doll_id: selected.id,
       customer_name: order.customer_name,
-      contact_info: order.contact_info,
-      notes: order.notes,
       order_status: order.order_status,
     });
 

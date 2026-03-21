@@ -25,6 +25,10 @@ export default function DollPublicPage() {
 
   const isMobile = viewportWidth < 760;
   const isTablet = viewportWidth >= 760 && viewportWidth < 1100;
+  const mainPageStyle = {
+    ...pageStyle,
+    padding: isMobile ? "14px 10px 40px" : pageStyle.padding,
+  };
 
   useEffect(() => {
     function handleResize() {
@@ -40,6 +44,12 @@ export default function DollPublicPage() {
   useEffect(() => {
     async function loadPage() {
       if (!slug) return;
+      if (!supabase) {
+        setError("This doll page is not configured yet.");
+        setDoll(null);
+        setLoading(false);
+        return;
+      }
 
       setLoading(true);
       setError("");
@@ -84,7 +94,7 @@ export default function DollPublicPage() {
 
   if (loading) {
     return (
-      <main style={pageStyle}>
+      <main style={mainPageStyle}>
         <div style={shellStyle}>
           <div style={brandStyle}>MAILLE & MERVEILLE</div>
           <div style={loadingCardStyle}>Loading doll story...</div>
@@ -95,7 +105,7 @@ export default function DollPublicPage() {
 
   if (error || !doll) {
     return (
-      <main style={pageStyle}>
+      <main style={mainPageStyle}>
         <div style={shellStyle}>
           <div style={brandStyle}>MAILLE & MERVEILLE</div>
           <div style={errorCardStyle}>
@@ -109,12 +119,15 @@ export default function DollPublicPage() {
     );
   }
 
-  const heroTitleSize = isMobile ? 48 : isTablet ? 62 : 76;
-  const heroPadding = isMobile ? 18 : 26;
-  const sectionPadding = isMobile ? 18 : 24;
+  const heroTitleSize = isMobile ? 40 : isTablet ? 62 : 76;
+  const heroPadding = isMobile ? 16 : 26;
+  const sectionPadding = isMobile ? 16 : 24;
+  const contentGap = isMobile ? 16 : 22;
+  const sectionCardRadius = isMobile ? 24 : sectionCardStyle.borderRadius;
+  const heroCardRadius = isMobile ? 26 : heroCardStyle.borderRadius;
 
   return (
-    <main style={pageStyle}>
+    <main style={mainPageStyle}>
       <div style={shellStyle}>
         <div style={brandStyle}>MAILLE & MERVEILLE</div>
 
@@ -122,6 +135,7 @@ export default function DollPublicPage() {
           style={{
             ...heroCardStyle,
             padding: heroPadding,
+            borderRadius: heroCardRadius,
           }}
         >
           {isMobile ? (
@@ -169,10 +183,26 @@ export default function DollPublicPage() {
                 {doll.short_intro || "A one-of-a-kind handmade doll with a story to discover."}
               </p>
 
-              {story.teaser ? <div style={mobileTeaserBoxStyle}>{story.teaser}</div> : null}
+              {story.teaser ? (
+                <div
+                  style={{
+                    ...mobileTeaserBoxStyle,
+                    width: "100%",
+                    boxSizing: "border-box",
+                  }}
+                >
+                  {story.teaser}
+                </div>
+              ) : null}
 
               {doll.emotional_hook ? (
-                <div style={mobileHeartBoxStyle}>
+                <div
+                  style={{
+                    ...mobileHeartBoxStyle,
+                    width: "100%",
+                    boxSizing: "border-box",
+                  }}
+                >
                   <div style={mobileHeartLabelStyle}>Character Heart</div>
                   <div style={mobileHeartTextStyle}>{doll.emotional_hook}</div>
                 </div>
@@ -245,21 +275,30 @@ export default function DollPublicPage() {
         <section
           style={{
             ...contentGridStyle,
+            gap: contentGap,
+            marginTop: isMobile ? 18 : contentGridStyle.marginTop,
             gridTemplateColumns: isMobile ? "1fr" : isTablet ? "1fr" : "1.42fr 0.92fr",
           }}
         >
-          <div style={mainColumnStyle}>
+          <div
+            style={{
+              ...mainColumnStyle,
+              gap: contentGap,
+            }}
+          >
             <div
               style={{
                 ...sectionCardStyle,
                 padding: sectionPadding,
+                borderRadius: sectionCardRadius,
               }}
             >
               <div style={sectionLabelStyle}>Main Story</div>
               <div
                 style={{
                   ...storyTextStyle,
-                  fontSize: isMobile ? 17 : 18,
+                  fontSize: isMobile ? 16 : 18,
+                  lineHeight: isMobile ? 1.9 : storyTextStyle.lineHeight,
                 }}
               >
                 {story.mainStory || "This doll's full story is coming soon."}
@@ -271,6 +310,7 @@ export default function DollPublicPage() {
                 style={{
                   ...sectionCardStyle,
                   padding: sectionPadding,
+                  borderRadius: sectionCardRadius,
                 }}
               >
                 <div style={sectionLabelStyle}>Little Story Moments</div>
@@ -278,18 +318,29 @@ export default function DollPublicPage() {
                 <div
                   style={{
                     ...miniGridStyle,
+                    gap: isMobile ? 12 : miniGridStyle.gap,
                     gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr",
                   }}
                 >
                   {story.mini1 ? (
-                    <div style={miniCardStyle}>
+                    <div
+                      style={{
+                        ...miniCardStyle,
+                        padding: isMobile ? 16 : miniCardStyle.padding,
+                      }}
+                    >
                       <div style={miniTitleStyle}>Story Moment 1</div>
                       <div style={miniTextStyle}>{story.mini1}</div>
                     </div>
                   ) : null}
 
                   {story.mini2 ? (
-                    <div style={miniCardStyle}>
+                    <div
+                      style={{
+                        ...miniCardStyle,
+                        padding: isMobile ? 16 : miniCardStyle.padding,
+                      }}
+                    >
                       <div style={miniTitleStyle}>Story Moment 2</div>
                       <div style={miniTextStyle}>{story.mini2}</div>
                     </div>
@@ -299,11 +350,17 @@ export default function DollPublicPage() {
             ) : null}
           </div>
 
-          <aside style={sideColumnStyle}>
+          <aside
+            style={{
+              ...sideColumnStyle,
+              gap: contentGap,
+            }}
+          >
             <div
               style={{
                 ...sectionCardStyle,
                 padding: sectionPadding,
+                borderRadius: sectionCardRadius,
               }}
             >
               <div style={sectionLabelStyle}>About This Doll</div>
@@ -332,6 +389,7 @@ export default function DollPublicPage() {
               style={{
                 ...sectionCardStyle,
                 padding: sectionPadding,
+                borderRadius: sectionCardRadius,
               }}
             >
               <div style={sectionLabelStyle}>A Handmade World</div>
@@ -358,6 +416,7 @@ const pageStyle = {
 const shellStyle = {
   maxWidth: 1160,
   margin: "0 auto",
+  width: "100%",
 };
 
 const brandStyle = {
@@ -431,6 +490,7 @@ const heroTitleStyle = {
   fontWeight: 800,
   letterSpacing: "-0.04em",
   color: "#16213b",
+  overflowWrap: "anywhere",
 };
 
 const heroIntroStyle = {
@@ -496,6 +556,8 @@ const heroImageFrameStyle = {
   borderRadius: 30,
   padding: 14,
   boxShadow: "0 18px 44px rgba(15, 23, 42, 0.08)",
+  overflow: "hidden",
+  boxSizing: "border-box",
 };
 
 const heroImageStyle = {
@@ -533,7 +595,7 @@ const heroImageFallbackTextStyle = {
 
 const mobileHeroStackStyle = {
   display: "grid",
-  gap: 14,
+  gap: 12,
 };
 
 const mobileImageOuterStyle = {
@@ -549,22 +611,26 @@ const mobileImageFrameStyle = {
   padding: 10,
   boxShadow: "0 14px 30px rgba(15, 23, 42, 0.08)",
   boxSizing: "border-box",
+  overflow: "hidden",
 };
 
 const mobileHeroImageStyle = {
   width: "100%",
-  height: 300,
+  height: "auto",
+  maxHeight: "62vh",
   display: "block",
-  objectFit: "cover",
+  objectFit: "contain",
+  objectPosition: "center top",
   borderRadius: 18,
+  background: "#ffffff",
 };
 
 const mobileIntroStyle = {
   margin: "2px 0 0",
   color: "#475569",
-  fontSize: 17,
-  lineHeight: 1.75,
-  textAlign: "center",
+  fontSize: 16,
+  lineHeight: 1.7,
+  textAlign: "left",
 };
 
 const mobileTeaserBoxStyle = {
@@ -575,7 +641,7 @@ const mobileTeaserBoxStyle = {
   color: "#9a3412",
   fontSize: 15,
   lineHeight: 1.75,
-  textAlign: "center",
+  textAlign: "left",
 };
 
 const mobileHeartBoxStyle = {
@@ -584,7 +650,7 @@ const mobileHeartBoxStyle = {
   borderRadius: 18,
   padding: 14,
   boxShadow: "0 8px 20px rgba(15, 23, 42, 0.04)",
-  textAlign: "center",
+  textAlign: "left",
 };
 
 const mobileHeartLabelStyle = {
@@ -689,6 +755,7 @@ const infoValueStyle = {
   color: "#334155",
   lineHeight: 1.8,
   fontSize: 16,
+  overflowWrap: "anywhere",
 };
 
 const sideTextStyle = {
