@@ -213,6 +213,7 @@ export default function Page() {
 
   const [qrDataUrl, setQrDataUrl] = useState("");
   const [qrUploading, setQrUploading] = useState(false);
+  const [showQrRegenerateWarning, setShowQrRegenerateWarning] = useState(false);
   const printCardRef = useRef(null);
 
   const [notice, setNotice] = useState("");
@@ -229,6 +230,22 @@ export default function Page() {
   const publicPath = selectedSlug ? `/doll/${selectedSlug}` : "";
   const publicUrl = selectedSlug && publicBaseUrl ? `${publicBaseUrl}${publicPath}` : "";
   const readiness = buildReadiness(identity, story, contentPack, order, publicUrl);
+  const qrSalesStatus = (selected?.sales_status || "").toLowerCase();
+  const qrAvailabilityStatus = (selected?.availability_status || "").toLowerCase();
+  const qrIsSensitive =
+    qrSalesStatus === "reserved" ||
+    qrSalesStatus === "sold" ||
+    qrAvailabilityStatus === "assigned";
+  const qrSensitivityLabel = qrIsSensitive ? "Sensitive" : "Editable";
+  const qrSensitivityText = qrIsSensitive
+    ? "Reserved, sold, or assigned dolls should only get a new QR when you are sure the owner can safely receive the updated link."
+    : "This doll is still editable, so generating or regenerating the QR is safe.";
+  const qrWarningMessage =
+    qrSalesStatus === "sold"
+      ? "This doll has already been sold. Regenerating the QR may break access for the owner."
+      : qrSalesStatus === "reserved"
+        ? "This doll has already been reserved. Regenerating the QR may break access for the customer."
+        : "This doll has already been assigned. Regenerating the QR may break access for the owner.";
 
   const savedQrUrl = selected?.qr_code_url || "";
   const qrStatus = !qrDataUrl
@@ -357,6 +374,10 @@ export default function Page() {
       loadDetails(selected.id);
     }
   }, [selectedId, dolls.length]);
+
+  useEffect(() => {
+    setShowQrRegenerateWarning(false);
+  }, [selectedId]);
 
   async function createDoll() {
     setError("");
@@ -586,18 +607,24 @@ export default function Page() {
   }
 
   async function generateQrCode() {
-    if (!selected) return;
+    if (!selected) return false;
 
     setError("");
     setNotice("");
 
     const dataUrl = await createQrCodeDataUrl();
     if (!dataUrl) {
-      return;
+      return false;
     }
 
     setQrDataUrl(dataUrl);
-    setNotice("QR code generated.");
+
+    const saved = await uploadQrToSupabase(dataUrl);
+    if (saved) {
+      setNotice("QR code generated and linked to this doll.");
+    }
+
+    return saved;
   }
 
   function downloadQrCode() {
@@ -725,6 +752,25 @@ export default function Page() {
     if (saved) {
       setNotice("QR code regenerated and linked to this doll.");
     }
+  }
+
+  function requestQrRegeneration() {
+    if (!savedQrUrl) {
+      generateQrCode();
+      return;
+    }
+
+    if (qrIsSensitive) {
+      setShowQrRegenerateWarning(true);
+      return;
+    }
+
+    regenerateSavedQrCode();
+  }
+
+  async function confirmQrRegeneration() {
+    setShowQrRegenerateWarning(false);
+    await regenerateSavedQrCode();
   }
 
   async function uploadImage(file) {
@@ -1193,27 +1239,23 @@ export default function Page() {
                       </div>
                     </div>
 
-                    <div style={digitalCardStyle}>
-                      <div style={sectionLabelStyle}>Public Page</div>
-                      <div style={{ display: "grid", gap: 12 }}>
-                        <code style={urlCodeStyle}>{publicPath || "/doll/your-doll-slug"}</code>
-                        <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-                          <button onClick={() => window.open(publicUrl, "_blank")} style={primaryButton} disabled={!publicUrl}>
-                            Open Public Page
-                          </button>
-                          <button onClick={() => copyToClipboard(publicUrl, "Public URL copied.")} style={secondaryButton} disabled={!publicUrl}>
-                            Copy URL
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-
                     <div style={digitalGridStyle}>
                       <div style={digitalCardStyle}>
-                        <div style={sectionLabelStyle}>QR Destination</div>
-                        <p style={mutedTextStyle}>
-                          This doll is now ready to point a printed QR code to its live story page.
-                        </p>
+                        <div style={digitalHeaderStyle}>
+                          <div>
+                            <div style={sectionLabelStyle}>Digital Identity</div>
+                            <p style={mutedTextStyle}>
+                              QR codes are managed here as a system-generated asset tied to this doll&apos;s public page.
+                            </p>
+                          </div>
+                          <div style={digitalStatusPillStyle(qrIsSensitive)}>{qrSensitivityLabel}</div>
+                        </div>
+
+                        <div style={digitalInfoBoxStyle}>
+                          <div style={digitalInfoTitleStyle}>Public URL</div>
+                          <code style={urlCodeStyle}>{publicUrl || publicPath || "/doll/your-doll-slug"}</code>
+                          <div style={digitalInfoTextStyle}>{qrSensitivityText}</div>
+                        </div>
 
                         <div style={qrPlaceholderStyle}>
                           {qrDataUrl ? (
@@ -1226,7 +1268,7 @@ export default function Page() {
                             <div>
                               <div style={{ fontWeight: 700, marginBottom: 6 }}>No QR generated yet</div>
                               <div style={{ fontSize: 14, color: "#64748b" }}>
-                                Generate a QR code for this doll&apos;s public page.
+                                Generate a QR code and save it directly to this doll&apos;s digital identity.
                               </div>
                             </div>
                           )}
@@ -1245,78 +1287,68 @@ export default function Page() {
                             {qrStatus === "saved"
                               ? "This QR is stored in Supabase and linked to this doll."
                               : qrStatus === "generated"
-                                ? "This QR exists only in the current session until you click Save QR."
-                                : "Generate a QR first to preview it here."}
+                                ? "A fresh QR preview exists, but it could not be saved yet."
+                                : "No QR has been generated for this doll yet."}
                           </div>
                         </div>
-
-                        {qrStatus === "saved" && savedQrUrl ? (
-                          <div style={{ display: "grid", gap: 10, marginTop: 12 }}>
-                            <code style={urlCodeStyle}>{savedQrUrl}</code>
-                            <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-                              <button
-                                onClick={() => window.open(savedQrUrl, "_blank")}
-                                style={secondaryButton}
-                              >
-                                Open Saved QR
-                              </button>
-                              <button
-                                onClick={() => copyToClipboard(savedQrUrl, "Saved QR URL copied.")}
-                                style={secondaryButton}
-                              >
-                                Copy Saved QR URL
-                              </button>
-                            </div>
-                          </div>
-                        ) : null}
 
                         <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 14 }}>
                           <button onClick={activateDigitalLayer} style={primaryButton}>
                             Activate Digital Layer
                           </button>
 
-                          {savedQrUrl ? (
-                            <button
-                              onClick={regenerateSavedQrCode}
-                              style={secondaryButton}
-                              disabled={!publicUrl || qrUploading}
-                            >
-                              {qrUploading ? "Regenerating..." : "Regenerate QR"}
-                            </button>
-                          ) : null}
-
                           <button
-                            onClick={generateQrCode}
-                            style={{
-                              ...secondaryButton,
-                              opacity: qrStatus === "saved" ? 0.65 : 1,
-                              cursor: qrStatus === "saved" ? "not-allowed" : "pointer",
-                            }}
-                            disabled={!publicUrl || qrStatus === "saved"}
+                            onClick={savedQrUrl ? requestQrRegeneration : generateQrCode}
+                            style={savedQrUrl ? secondaryButton : primaryButton}
+                            disabled={!publicUrl || qrUploading}
                           >
-                            Generate QR
+                            {qrUploading
+                              ? savedQrUrl
+                                ? "Regenerating..."
+                                : "Generating..."
+                              : savedQrUrl
+                                ? "Regenerate QR"
+                                : "Generate QR"}
+                          </button>
+
+                          <button onClick={() => window.open(publicUrl, "_blank")} style={secondaryButton} disabled={!publicUrl}>
+                            Open Public Page
+                          </button>
+
+                          <button onClick={() => copyToClipboard(publicUrl, "Public URL copied.")} style={secondaryButton} disabled={!publicUrl}>
+                            Copy URL
                           </button>
 
                           <button onClick={downloadQrCode} style={secondaryButton} disabled={!qrDataUrl}>
-                            Download PNG
+                            Download QR
                           </button>
 
                           <button onClick={downloadPrintCard} style={secondaryButton} disabled={!qrDataUrl}>
                             Download Print Card
                           </button>
-
-                          <button
-                            onClick={uploadQrToSupabase}
-                            style={{
-                              ...secondaryButton,
-                              opacity: qrStatus === "saved" ? 0.65 : 1,
-                              cursor: qrStatus === "saved" ? "not-allowed" : "pointer",
-                            }}
-                            disabled={!qrDataUrl || qrUploading || qrStatus === "saved"}
-                          >
-                            {qrUploading ? "Uploading..." : qrStatus === "saved" ? "Saved" : "Save QR"}
-                          </button>
                         </div>
+
+                        {showQrRegenerateWarning ? (
+                          <div style={qrWarningBoxStyle}>
+                            <div style={qrWarningTitleStyle}>Regenerate QR Code?</div>
+                            <div style={qrWarningTextStyle}>{qrWarningMessage}</div>
+                            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 14 }}>
+                              <button
+                                onClick={() => setShowQrRegenerateWarning(false)}
+                                style={secondaryButton}
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                onClick={confirmQrRegeneration}
+                                style={dangerButton}
+                                disabled={qrUploading}
+                              >
+                                {qrUploading ? "Regenerating..." : "Regenerate anyway"}
+                              </button>
+                            </div>
+                          </div>
+                        ) : null}
 
                         {qrDataUrl ? (
                           <div style={printCardWrapperStyle}>
@@ -1597,11 +1629,68 @@ const secondaryButton = {
   cursor: "pointer",
 };
 
+const dangerButton = {
+  background: "#991b1b",
+  color: "#fff",
+  border: "none",
+  borderRadius: 16,
+  padding: "14px 18px",
+  fontSize: 16,
+  cursor: "pointer",
+};
+
 const digitalCardStyle = {
   background: "#ffffff",
   border: "1px solid #e5e7eb",
   borderRadius: 22,
   padding: 20,
+};
+
+const digitalHeaderStyle = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "flex-start",
+  gap: 12,
+  flexWrap: "wrap",
+  marginBottom: 14,
+};
+
+function digitalStatusPillStyle(isSensitive) {
+  return {
+    display: "inline-flex",
+    alignItems: "center",
+    background: isSensitive ? "#fff7ed" : "#ecfdf5",
+    border: `1px solid ${isSensitive ? "#fdba74" : "#86efac"}`,
+    color: isSensitive ? "#9a3412" : "#166534",
+    borderRadius: 999,
+    padding: "8px 12px",
+    fontSize: 13,
+    fontWeight: 700,
+  };
+}
+
+const digitalInfoBoxStyle = {
+  display: "grid",
+  gap: 10,
+  background: "#f8fafc",
+  border: "1px solid #cbd5e1",
+  borderRadius: 18,
+  padding: 16,
+  marginBottom: 14,
+};
+
+const digitalInfoTitleStyle = {
+  fontSize: 12,
+  textTransform: "uppercase",
+  letterSpacing: "0.12em",
+  color: "#64748b",
+  fontWeight: 700,
+};
+
+const digitalInfoTextStyle = {
+  fontSize: 14,
+  color: "#475569",
+  lineHeight: 1.6,
 };
 
 const slugRowStyle = {
@@ -1678,6 +1767,26 @@ function qrStatusBoxStyle(status) {
     marginTop: 4,
   };
 }
+
+const qrWarningBoxStyle = {
+  background: "#fff7ed",
+  border: "1px solid #fdba74",
+  borderRadius: 18,
+  padding: 16,
+  marginTop: 14,
+};
+
+const qrWarningTitleStyle = {
+  fontWeight: 700,
+  color: "#9a3412",
+  marginBottom: 8,
+};
+
+const qrWarningTextStyle = {
+  color: "#7c2d12",
+  lineHeight: 1.7,
+  fontSize: 14,
+};
 
 const visualPlaceholderStyle = {
   border: "1px dashed #cbd5e1",
