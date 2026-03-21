@@ -125,6 +125,7 @@ export default function DollPublicPage() {
   const contentGap = isMobile ? 16 : 22;
   const sectionCardRadius = isMobile ? 24 : sectionCardStyle.borderRadius;
   const heroCardRadius = isMobile ? 26 : heroCardStyle.borderRadius;
+  const imageUrl = typeof doll.image_url === "string" ? doll.image_url.trim() : "";
 
   return (
     <main style={mainPageStyle}>
@@ -156,11 +157,11 @@ export default function DollPublicPage() {
                 {doll.name || "Handmade Doll"}
               </h1>
 
-              {doll.image_url ? (
+              {imageUrl ? (
                 <div style={mobileImageOuterStyle}>
                   <div style={mobileImageFrameStyle}>
                     <img
-                      src={doll.image_url}
+                      src={imageUrl}
                       alt={doll.name || "Doll"}
                       style={mobileHeroImageStyle}
                     />
@@ -249,9 +250,9 @@ export default function DollPublicPage() {
 
               <div style={heroVisualColumnStyle}>
                 <div style={heroImageFrameStyle}>
-                  {doll.image_url ? (
+                  {imageUrl ? (
                     <img
-                      src={doll.image_url}
+                      src={imageUrl}
                       alt={doll.name || "Doll"}
                       style={{
                         ...heroImageStyle,
