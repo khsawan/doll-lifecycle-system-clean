@@ -567,29 +567,37 @@ export default function Page() {
     setNotice("Digital layer activated.");
   }
 
-  async function generateQrCode() {
-    if (!selected) return;
-
+  async function createQrCodeDataUrl() {
     if (!publicUrl) {
       setError("No public URL available for this doll.");
-      return;
+      return null;
     }
 
-    setError("");
-    setNotice("");
-
     try {
-      const dataUrl = await QRCode.toDataURL(publicUrl, {
+      return await QRCode.toDataURL(publicUrl, {
         width: 320,
         margin: 2,
         errorCorrectionLevel: "M",
       });
-
-      setQrDataUrl(dataUrl);
-      setNotice("QR code generated.");
     } catch (err) {
       setError(err?.message || "Failed to generate QR code.");
+      return null;
     }
+  }
+
+  async function generateQrCode() {
+    if (!selected) return;
+
+    setError("");
+    setNotice("");
+
+    const dataUrl = await createQrCodeDataUrl();
+    if (!dataUrl) {
+      return;
+    }
+
+    setQrDataUrl(dataUrl);
+    setNotice("QR code generated.");
   }
 
   function downloadQrCode() {
@@ -639,10 +647,10 @@ export default function Page() {
     }
   }
 
-  async function uploadQrToSupabase() {
-    if (!qrDataUrl || !selected) {
+  async function uploadQrToSupabase(qrSource = qrDataUrl) {
+    if (!qrSource || !selected) {
       setError("Generate a QR code first.");
-      return;
+      return false;
     }
 
     setQrUploading(true);
@@ -650,7 +658,7 @@ export default function Page() {
     setNotice("");
 
     try {
-      const response = await fetch(qrDataUrl);
+      const response = await fetch(qrSource);
       const blob = await response.blob();
 
       const filePath = `qr-codes/${selectedSlug || selected.internal_id}.png`;
@@ -689,10 +697,31 @@ export default function Page() {
 
       setQrDataUrl(publicQrUrl);
       setNotice("QR code uploaded and linked to this doll.");
+      return true;
     } catch (err) {
       setError(err?.message || "Failed to upload QR code.");
+      return false;
     } finally {
       setQrUploading(false);
+    }
+  }
+
+  async function regenerateSavedQrCode() {
+    if (!selected) return;
+
+    setError("");
+    setNotice("");
+
+    const dataUrl = await createQrCodeDataUrl();
+    if (!dataUrl) {
+      return;
+    }
+
+    setQrDataUrl(dataUrl);
+
+    const saved = await uploadQrToSupabase(dataUrl);
+    if (saved) {
+      setNotice("QR code regenerated and linked to this doll.");
     }
   }
 
@@ -1243,6 +1272,16 @@ export default function Page() {
                           <button onClick={activateDigitalLayer} style={primaryButton}>
                             Activate Digital Layer
                           </button>
+
+                          {savedQrUrl ? (
+                            <button
+                              onClick={regenerateSavedQrCode}
+                              style={secondaryButton}
+                              disabled={!publicUrl || qrUploading}
+                            >
+                              {qrUploading ? "Regenerating..." : "Regenerate QR"}
+                            </button>
+                          ) : null}
 
                           <button
                             onClick={generateQrCode}
