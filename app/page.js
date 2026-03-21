@@ -13,7 +13,6 @@ const DEFAULT_THEMES = [
 ];
 const STORY_TONES = ["Gentle", "Playful", "Magical"];
 const STATUSES = ["new", "identity", "story", "digital", "content", "sales", "live"];
-const PUBLIC_BASE_URL = "https://doll-lifecycle-system-2.vercel.app";
 
 function slugify(value) {
   return (value || "")
@@ -39,6 +38,19 @@ function cleanList(value) {
     .split(",")
     .map((x) => x.trim())
     .filter(Boolean);
+}
+
+function getPublicBaseUrl() {
+  const envUrl = process.env.NEXT_PUBLIC_SITE_URL?.trim();
+  if (envUrl) {
+    return envUrl.replace(/\/+$/, "");
+  }
+
+  if (typeof window !== "undefined") {
+    return window.location.origin;
+  }
+
+  return "";
 }
 
 function buildStoryPack(doll, tone) {
@@ -99,12 +111,13 @@ function buildStoryPack(doll, tone) {
   };
 }
 
-function buildContentPack(doll, storyData) {
+function buildContentPack(doll, storyData, publicBaseUrl) {
   const name = doll.name || "This doll";
   const theme = doll.theme_name || "Unassigned";
   const hook = doll.emotional_hook || `${name} brings warmth and wonder wherever she goes`;
   const intro = doll.short_intro || `${name} is a one-of-a-kind handmade doll with a story.`;
   const teaser = storyData.teaser || `Meet ${name}, a one-of-a-kind doll with a gentle story to tell.`;
+  const publicDollUrl = publicBaseUrl ? `${publicBaseUrl}/doll/${slugify(name)}` : "";
 
   return {
     caption: `${name} ✨
@@ -113,7 +126,7 @@ ${intro}
 
 ${teaser}
 
-Discover ${name}'s world: ${PUBLIC_BASE_URL}/doll/${slugify(name)}
+Discover ${name}'s world: ${publicDollUrl}
 
 #MailleEtMerveille #DollWithAStory #HandmadeDoll`,
     hook: `Meet ${name}, a one-of-a-kind doll from the ${theme} world.`,
@@ -211,9 +224,10 @@ export default function Page() {
     [dolls, selectedId]
   );
 
+  const publicBaseUrl = getPublicBaseUrl();
   const selectedSlug = slugify(identity.name || selected?.name || selected?.internal_id || "");
   const publicPath = selectedSlug ? `/doll/${selectedSlug}` : "";
-  const publicUrl = selectedSlug ? `${PUBLIC_BASE_URL}${publicPath}` : "";
+  const publicUrl = selectedSlug && publicBaseUrl ? `${publicBaseUrl}${publicPath}` : "";
   const readiness = buildReadiness(identity, story, contentPack, order, publicUrl);
 
   const savedQrUrl = selected?.qr_code_url || "";
@@ -728,7 +742,7 @@ export default function Page() {
   function generateContentPack() {
     if (!selected) return;
 
-    const pack = buildContentPack({ ...selected, ...identity }, story);
+    const pack = buildContentPack({ ...selected, ...identity }, story, publicBaseUrl);
     setContentPack(pack);
     setNotice("Content pack generated.");
   }
