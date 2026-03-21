@@ -53,6 +53,21 @@ function getPublicBaseUrl() {
   return "";
 }
 
+function buildAdminVersionInfo() {
+  const sha = process.env.VERCEL_GIT_COMMIT_SHA?.trim() || "unknown";
+  const message = process.env.VERCEL_GIT_COMMIT_MESSAGE?.trim() || "unknown";
+  const env = process.env.VERCEL_ENV?.trim() || "unknown";
+  const shortSha = sha === "unknown" ? "unknown" : sha.slice(0, 7);
+  const envLabel = env.charAt(0).toUpperCase() + env.slice(1);
+
+  return {
+    sha: shortSha,
+    message,
+    env: envLabel,
+    label: `v${shortSha} • ${envLabel} • ${message}`,
+  };
+}
+
 function buildStoryPack(doll, tone) {
   const name = doll.name || "This doll";
   const theme = doll.theme_name || "Unassigned";
@@ -172,6 +187,7 @@ function buildReadiness(identity, story, contentPack, order, publicUrl) {
 }
 
 export default function Page() {
+  const adminVersion = buildAdminVersionInfo();
   const [themes, setThemes] = useState(DEFAULT_THEMES);
   const [dolls, setDolls] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
@@ -1585,6 +1601,8 @@ export default function Page() {
               <div style={{ color: "#64748b" }}>Create your first doll to begin.</div>
             )}
           </section>
+
+          <footer style={versionFooterStyle}>{adminVersion.label}</footer>
         </div>
       </div>
     </main>
@@ -1876,4 +1894,14 @@ const printCardBrandStyle = {
   textTransform: "uppercase",
   color: "#94a3b8",
   fontWeight: 700,
+};
+
+const versionFooterStyle = {
+  marginTop: 18,
+  padding: "0 6px 8px",
+  color: "#94a3b8",
+  fontSize: 12,
+  lineHeight: 1.6,
+  textAlign: "center",
+  overflowWrap: "anywhere",
 };
