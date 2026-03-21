@@ -68,6 +68,54 @@ function buildAdminVersionInfo() {
   };
 }
 
+function emptyStoryState() {
+  return {
+    teaser: "",
+    mainStory: "",
+    mini1: "",
+    mini2: "",
+  };
+}
+
+function emptyContentPackState() {
+  return {
+    caption: "",
+    hook: "",
+    blurb: "",
+    cta: "",
+  };
+}
+
+function emptyOrderState() {
+  return {
+    customer_name: "",
+    contact_info: "",
+    notes: "",
+    order_status: "new",
+  };
+}
+
+function extractDollAssetPath(url) {
+  if (typeof url !== "string" || !url.trim()) return "";
+
+  const normalizedUrl = url.trim();
+  const marker = "/storage/v1/object/public/doll-assets/";
+
+  try {
+    const parsed = new URL(normalizedUrl);
+    const markerIndex = parsed.pathname.indexOf(marker);
+    if (markerIndex < 0) return "";
+    return decodeURIComponent(parsed.pathname.slice(markerIndex + marker.length));
+  } catch {
+    const markerIndex = normalizedUrl.indexOf(marker);
+    if (markerIndex < 0) return "";
+    return normalizedUrl
+      .slice(markerIndex + marker.length)
+      .split("?")[0]
+      .split("#")[0];
+  }
+}
+
 function buildStoryPack(doll, tone) {
   const name = doll.name || "This doll";
   const theme = doll.theme_name || "Unassigned";
@@ -206,30 +254,18 @@ export default function Page() {
   });
 
   const [storyTone, setStoryTone] = useState("Gentle");
-  const [story, setStory] = useState({
-    teaser: "",
-    mainStory: "",
-    mini1: "",
-    mini2: "",
-  });
+  const [story, setStory] = useState(emptyStoryState);
 
-  const [contentPack, setContentPack] = useState({
-    caption: "",
-    hook: "",
-    blurb: "",
-    cta: "",
-  });
+  const [contentPack, setContentPack] = useState(emptyContentPackState);
 
-  const [order, setOrder] = useState({
-    customer_name: "",
-    contact_info: "",
-    notes: "",
-    order_status: "new",
-  });
+  const [order, setOrder] = useState(emptyOrderState);
 
   const [qrDataUrl, setQrDataUrl] = useState("");
   const [qrUploading, setQrUploading] = useState(false);
   const [showQrRegenerateWarning, setShowQrRegenerateWarning] = useState(false);
+  const [dangerAction, setDangerAction] = useState(null);
+  const [dangerConfirmText, setDangerConfirmText] = useState("");
+  const [dangerLoading, setDangerLoading] = useState("");
   const printCardRef = useRef(null);
 
   const [notice, setNotice] = useState("");
@@ -252,6 +288,8 @@ export default function Page() {
     qrSalesStatus === "reserved" ||
     qrSalesStatus === "sold" ||
     qrAvailabilityStatus === "assigned";
+  const dangerNeedsArchiveWarning = qrIsSensitive;
+  const dangerNeedsTypedDelete = qrSalesStatus === "sold" || qrAvailabilityStatus === "assigned";
   const qrSensitivityLabel = qrIsSensitive ? "Sensitive" : "Editable";
   const qrSensitivityText = qrIsSensitive
     ? "Reserved, sold, or assigned dolls should only get a new QR when you are sure the owner can safely receive the updated link."
@@ -262,6 +300,21 @@ export default function Page() {
       : qrSalesStatus === "reserved"
         ? "This doll has already been reserved. Regenerating the QR may break access for the customer."
         : "This doll has already been assigned. Regenerating the QR may break access for the owner.";
+  const archiveWarningMessage =
+    qrSalesStatus === "sold"
+      ? "This doll has already been sold. Archiving it will keep the digital identity intact, but you should only do this if the owner can still reach the right page and QR."
+      : qrSalesStatus === "reserved"
+        ? "This doll has already been reserved. Archiving it will keep the digital identity intact, but you should confirm the customer will not lose access."
+        : "This doll has already been assigned. Archiving it will keep the digital identity intact, but you should confirm the recipient will not lose access.";
+  const deleteWarningMessage =
+    qrSalesStatus === "sold"
+      ? "This doll has already been sold. Deleting it will remove its digital identity, public page content, QR link, and order history."
+      : qrSalesStatus === "reserved"
+        ? "This doll has already been reserved. Deleting it will remove its digital identity, public page content, QR link, and order history."
+        : qrAvailabilityStatus === "assigned"
+          ? "This doll has already been assigned. Deleting it will remove its digital identity, public page content, QR link, and order history."
+          : "This will permanently remove the doll, its digital identity, public page content, QR link, stories, content assets, and orders.";
+  const selectedIsArchived = selected?.status === "archived";
 
   const savedQrUrl = selected?.qr_code_url || "";
   const qrStatus = !qrDataUrl
@@ -393,6 +446,9 @@ export default function Page() {
 
   useEffect(() => {
     setShowQrRegenerateWarning(false);
+    setDangerAction(null);
+    setDangerConfirmText("");
+    setDangerLoading("");
   }, [selectedId]);
 
   async function createDoll() {
@@ -789,6 +845,117 @@ export default function Page() {
     await regenerateSavedQrCode();
   }
 
+  async function archiveDoll() {
+    if (!selected || !supabase) return;
+
+    setDangerLoading("archive");
+    setError("");
+    setNotice("");
+
+    const { error } = await supabase
+      .from("dolls")
+      .update({ status: "archived" })
+      .eq("id", selected.id);
+
+    if (error) {
+      setError(error.message);
+      setDangerLoading("");
+      return;
+    }
+
+    setDolls((prev) =>
+      prev.map((d) => (d.id === selected.id ? { ...d, status: "archived" } : d))
+    );
+    setDangerAction(null);
+    setDangerLoading("");
+    setNotice("Doll archived. Its digital identity and related records remain intact.");
+  }
+
+  function requestArchiveDoll() {
+    if (dangerNeedsArchiveWarning) {
+      setDangerAction("archive");
+      return;
+    }
+
+    archiveDoll();
+  }
+
+  function requestPermanentDelete() {
+    setDangerAction("delete");
+    setDangerConfirmText("");
+  }
+
+  async function deleteDollPermanently() {
+    if (!selected || !supabase) return;
+    if (dangerNeedsTypedDelete && dangerConfirmText !== "DELETE") {
+      setError('Type DELETE to confirm permanent removal for this doll.');
+      return;
+    }
+
+    setDangerLoading("delete");
+    setError("");
+    setNotice("");
+
+    const storagePaths = Array.from(
+      new Set(
+        [extractDollAssetPath(selected.qr_code_url), extractDollAssetPath(selected.image_url)].filter(Boolean)
+      )
+    );
+
+    if (storagePaths.length) {
+      const { error: storageError } = await supabase.storage.from("doll-assets").remove(storagePaths);
+      if (storageError) {
+        setError(`Could not remove stored QR or image files. ${storageError.message}`);
+        setDangerLoading("");
+        return;
+      }
+    }
+
+    const { error: storiesError } = await supabase.from("stories").delete().eq("doll_id", selected.id);
+    if (storiesError) {
+      setError(storiesError.message);
+      setDangerLoading("");
+      return;
+    }
+
+    const { error: contentError } = await supabase
+      .from("content_assets")
+      .delete()
+      .eq("doll_id", selected.id);
+    if (contentError) {
+      setError(contentError.message);
+      setDangerLoading("");
+      return;
+    }
+
+    const { error: ordersError } = await supabase.from("orders").delete().eq("doll_id", selected.id);
+    if (ordersError) {
+      setError(ordersError.message);
+      setDangerLoading("");
+      return;
+    }
+
+    const deletedId = selected.id;
+    const nextSelected = dolls.find((d) => d.id !== deletedId) || null;
+    const { error: dollError } = await supabase.from("dolls").delete().eq("id", deletedId);
+    if (dollError) {
+      setError(dollError.message);
+      setDangerLoading("");
+      return;
+    }
+
+    setDolls((prev) => prev.filter((d) => d.id !== deletedId));
+    setSelectedId(nextSelected?.id || null);
+    setQrDataUrl("");
+    setStory(emptyStoryState());
+    setContentPack(emptyContentPackState());
+    setOrder(emptyOrderState());
+    setDangerAction(null);
+    setDangerConfirmText("");
+    setDangerLoading("");
+    setNotice("Doll permanently deleted. Its linked content, orders, QR, and image files were cleaned up.");
+  }
+
   async function uploadImage(file) {
     if (!file || !selected) return;
 
@@ -1078,7 +1245,8 @@ export default function Page() {
                     style={{
                       textAlign: "left",
                       border: selected?.id === d.id ? "2px solid #0f172a" : "1px solid #cbd5e1",
-                      background: "#fff",
+                      background: d.status === "archived" ? "#f8fafc" : "#fff",
+                      opacity: d.status === "archived" ? 0.82 : 1,
                       borderRadius: 20,
                       padding: 16,
                       cursor: "pointer",
@@ -1117,7 +1285,10 @@ export default function Page() {
               <>
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "start" }}>
                   <div>
-                    <h2 style={{ margin: 0, fontSize: 28 }}>{selected.name}</h2>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                      <h2 style={{ margin: 0, fontSize: 28 }}>{selected.name}</h2>
+                      {selectedIsArchived ? <div style={archivedBadgeStyle}>Archived</div> : null}
+                    </div>
                     <div style={{ color: "#64748b", marginTop: 6 }}>
                       {selected.internal_id} · {identity.theme_name || "Unassigned"}
                     </div>
@@ -1132,6 +1303,13 @@ export default function Page() {
                 <div style={{ marginTop: 14, color: "#475569" }}>
                   Lifecycle progress: {progressFromStatus(selected.status)}%
                 </div>
+
+                {selectedIsArchived ? (
+                  <div style={archivedBannerStyle}>
+                    This doll is archived. Its digital identity and related records are preserved, but it is no longer
+                    part of the active lifecycle.
+                  </div>
+                ) : null}
 
                 <div style={{ marginTop: 8, height: 8, background: "#e2e8f0", borderRadius: 999 }}>
                   <div style={{ width: `${progressFromStatus(selected.status)}%`, height: "100%", background: "#0f172a", borderRadius: 999 }} />
@@ -1598,6 +1776,102 @@ export default function Page() {
                     </div>
                   </div>
                 ) : null}
+
+                <div style={dangerZoneStyle}>
+                  <div style={dangerZoneLabelStyle}>Danger Zone</div>
+                  <div style={dangerZoneTitleStyle}>Archive or permanently remove this doll</div>
+                  <p style={dangerZoneTextStyle}>
+                    Use these actions only when you need to retire a doll from the active lifecycle or remove its
+                    digital identity completely. Archiving keeps everything intact. Permanent deletion removes the
+                    doll, its public story data, QR identity, and linked order records.
+                  </p>
+
+                  <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                    <button
+                      onClick={requestArchiveDoll}
+                      style={secondaryButton}
+                      disabled={dangerLoading === "archive" || dangerLoading === "delete"}
+                    >
+                      {dangerLoading === "archive" ? "Archiving..." : "Archive Doll"}
+                    </button>
+
+                    <button
+                      onClick={requestPermanentDelete}
+                      style={dangerButton}
+                      disabled={dangerLoading === "archive" || dangerLoading === "delete"}
+                    >
+                      {dangerLoading === "delete" ? "Deleting..." : "Delete Permanently"}
+                    </button>
+                  </div>
+
+                  {dangerAction === "archive" ? (
+                    <div style={dangerConfirmCardStyle}>
+                      <div style={dangerConfirmTitleStyle}>Archive this doll?</div>
+                      <div style={dangerConfirmTextStyle}>{archiveWarningMessage}</div>
+                      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 14 }}>
+                        <button
+                          onClick={() => setDangerAction(null)}
+                          style={secondaryButton}
+                          disabled={dangerLoading === "archive"}
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={archiveDoll}
+                          style={primaryButton}
+                          disabled={dangerLoading === "archive"}
+                        >
+                          {dangerLoading === "archive" ? "Archiving..." : "Archive Doll"}
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {dangerAction === "delete" ? (
+                    <div style={dangerConfirmCardStyle}>
+                      <div style={dangerConfirmTitleStyle}>Delete this doll permanently?</div>
+                      <div style={dangerConfirmTextStyle}>{deleteWarningMessage}</div>
+                      <div style={{ ...dangerConfirmTextStyle, marginTop: 10 }}>
+                        This will remove the doll&apos;s public page content, QR identity, stories, content assets,
+                        orders, and linked uploaded files.
+                      </div>
+
+                      {dangerNeedsTypedDelete ? (
+                        <div style={{ marginTop: 14 }}>
+                          <label style={labelStyle}>Type DELETE to confirm</label>
+                          <input
+                            value={dangerConfirmText}
+                            onChange={(e) => setDangerConfirmText(e.target.value)}
+                            style={inputStyle}
+                          />
+                        </div>
+                      ) : null}
+
+                      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 14 }}>
+                        <button
+                          onClick={() => {
+                            setDangerAction(null);
+                            setDangerConfirmText("");
+                          }}
+                          style={secondaryButton}
+                          disabled={dangerLoading === "delete"}
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={deleteDollPermanently}
+                          style={dangerButton}
+                          disabled={
+                            dangerLoading === "delete" ||
+                            (dangerNeedsTypedDelete && dangerConfirmText !== "DELETE")
+                          }
+                        >
+                          {dangerLoading === "delete" ? "Deleting..." : "Delete Permanently"}
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
               </>
             ) : (
               <div style={{ color: "#64748b" }}>Create your first doll to begin.</div>
@@ -1802,6 +2076,80 @@ const qrWarningTitleStyle = {
 
 const qrWarningTextStyle = {
   color: "#7c2d12",
+  lineHeight: 1.7,
+  fontSize: 14,
+};
+
+const dangerZoneStyle = {
+  marginTop: 28,
+  padding: 20,
+  border: "1px solid #fecaca",
+  background: "#fff7f7",
+  borderRadius: 22,
+};
+
+const dangerZoneLabelStyle = {
+  fontSize: 12,
+  textTransform: "uppercase",
+  letterSpacing: "0.12em",
+  color: "#b91c1c",
+  marginBottom: 10,
+  fontWeight: 700,
+};
+
+const dangerZoneTitleStyle = {
+  fontSize: 20,
+  fontWeight: 700,
+  color: "#7f1d1d",
+  marginBottom: 8,
+};
+
+const dangerZoneTextStyle = {
+  color: "#7f1d1d",
+  lineHeight: 1.7,
+  margin: "0 0 16px",
+  fontSize: 15,
+};
+
+const dangerConfirmCardStyle = {
+  marginTop: 16,
+  border: "1px solid #fca5a5",
+  background: "#ffffff",
+  borderRadius: 18,
+  padding: 16,
+};
+
+const dangerConfirmTitleStyle = {
+  fontWeight: 700,
+  color: "#7f1d1d",
+  marginBottom: 8,
+};
+
+const dangerConfirmTextStyle = {
+  color: "#7f1d1d",
+  lineHeight: 1.7,
+  fontSize: 14,
+};
+
+const archivedBadgeStyle = {
+  display: "inline-flex",
+  alignItems: "center",
+  background: "#f1f5f9",
+  border: "1px solid #cbd5e1",
+  color: "#475569",
+  borderRadius: 999,
+  padding: "7px 12px",
+  fontSize: 13,
+  fontWeight: 700,
+};
+
+const archivedBannerStyle = {
+  marginTop: 12,
+  background: "#f8fafc",
+  border: "1px solid #cbd5e1",
+  borderRadius: 16,
+  padding: 14,
+  color: "#475569",
   lineHeight: 1.7,
   fontSize: 14,
 };
