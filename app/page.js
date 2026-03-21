@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { toPng } from "html-to-image";
+import QRCode from "qrcode";
 import { supabase } from "../lib/supabase";
 
 const DEFAULT_THEMES = [
@@ -171,6 +173,7 @@ export default function Page() {
     personality_traits: "",
     emotional_hook: "",
     short_intro: "",
+    image_url: "",
   });
 
   const [storyTone, setStoryTone] = useState("Gentle");
@@ -195,6 +198,10 @@ export default function Page() {
     order_status: "new",
   });
 
+  const [qrDataUrl, setQrDataUrl] = useState("");
+  const [qrUploading, setQrUploading] = useState(false);
+  const printCardRef = useRef(null);
+
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [activeTab, setActiveTab] = useState("identity");
@@ -208,6 +215,13 @@ export default function Page() {
   const publicPath = selectedSlug ? `/doll/${selectedSlug}` : "";
   const publicUrl = selectedSlug ? `${PUBLIC_BASE_URL}${publicPath}` : "";
   const readiness = buildReadiness(identity, story, contentPack, order, publicUrl);
+
+  const savedQrUrl = selected?.qr_code_url || "";
+  const qrStatus = !qrDataUrl
+    ? "empty"
+    : savedQrUrl && qrDataUrl === savedQrUrl
+      ? "saved"
+      : "generated";
 
   async function loadThemes() {
     const { data } = await supabase.from("themes").select("name").order("name");
@@ -244,6 +258,7 @@ export default function Page() {
     setError("");
 
     const doll = dolls.find((d) => d.id === dollId);
+
     if (doll) {
       setIdentity({
         name: doll.name || "",
@@ -251,7 +266,12 @@ export default function Page() {
         personality_traits: doll.personality_traits || "",
         emotional_hook: doll.emotional_hook || "",
         short_intro: doll.short_intro || "",
+        image_url: doll.image_url || "",
       });
+
+      setQrDataUrl(doll.qr_code_url || "");
+    } else {
+      setQrDataUrl("");
     }
 
     const { data: stories } = await supabase
@@ -371,6 +391,7 @@ export default function Page() {
       personality_traits: identity.personality_traits,
       emotional_hook: identity.emotional_hook,
       short_intro: identity.short_intro,
+      image_url: identity.image_url,
       slug: slugify(identity.name || selected.internal_id),
       status: selected.status === "new" ? "identity" : selected.status,
     };
@@ -523,6 +544,178 @@ export default function Page() {
     );
 
     setNotice("Digital layer activated.");
+  }
+
+  async function generateQrCode() {
+    if (!selected) return;
+
+    if (!publicUrl) {
+      setError("No public URL available for this doll.");
+      return;
+    }
+
+    setError("");
+    setNotice("");
+
+    try {
+      const dataUrl = await QRCode.toDataURL(publicUrl, {
+        width: 320,
+        margin: 2,
+        errorCorrectionLevel: "M",
+      });
+
+      setQrDataUrl(dataUrl);
+      setNotice("QR code generated.");
+    } catch (err) {
+      setError(err?.message || "Failed to generate QR code.");
+    }
+  }
+
+  function downloadQrCode() {
+    if (!qrDataUrl || !selected) {
+      setError("Generate a QR code first.");
+      return;
+    }
+
+    const link = document.createElement("a");
+    link.href = qrDataUrl;
+    link.download = `${selectedSlug || selected.internal_id || "doll"}-qr.png`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    setNotice("QR code downloaded.");
+  }
+
+  async function downloadPrintCard() {
+    if (!printCardRef.current || !selected) {
+      setError("No print card available to download.");
+      return;
+    }
+
+    setError("");
+    setNotice("");
+
+    try {
+      const dataUrl = await toPng(printCardRef.current, {
+        pixelRatio: 2,
+        backgroundColor: "#ffffff",
+        cacheBust: true,
+      });
+
+      const link = document.createElement("a");
+      link.href = dataUrl;
+      link.download = `${selectedSlug || selected.internal_id || "doll"}-print-card.png`;
+
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      setNotice("Print card downloaded.");
+    } catch (err) {
+      console.error(err);
+      setError("Failed to generate print card download.");
+    }
+  }
+
+  async function uploadQrToSupabase() {
+    if (!qrDataUrl || !selected) {
+      setError("Generate a QR code first.");
+      return;
+    }
+
+    setQrUploading(true);
+    setError("");
+    setNotice("");
+
+    try {
+      const response = await fetch(qrDataUrl);
+      const blob = await response.blob();
+
+      const filePath = `qr-codes/${selectedSlug || selected.internal_id}.png`;
+
+      const { error: uploadError } = await supabase.storage
+        .from("doll-assets")
+        .upload(filePath, blob, {
+          contentType: "image/png",
+          upsert: true,
+        });
+
+      if (uploadError) {
+        throw uploadError;
+      }
+
+      const { data } = supabase.storage
+        .from("doll-assets")
+        .getPublicUrl(filePath);
+
+      const publicQrUrl = data?.publicUrl || "";
+
+      const { error: updateError } = await supabase
+        .from("dolls")
+        .update({ qr_code_url: publicQrUrl })
+        .eq("id", selected.id);
+
+      if (updateError) {
+        throw updateError;
+      }
+
+      setDolls((prev) =>
+        prev.map((d) =>
+          d.id === selected.id ? { ...d, qr_code_url: publicQrUrl } : d
+        )
+      );
+
+      setQrDataUrl(publicQrUrl);
+      setNotice("QR code uploaded and linked to this doll.");
+    } catch (err) {
+      setError(err?.message || "Failed to upload QR code.");
+    } finally {
+      setQrUploading(false);
+    }
+  }
+
+  async function uploadImage(file) {
+    if (!file || !selected) return;
+
+    setError("");
+    setNotice("Uploading image...");
+
+    const filePath = `dolls/${selected.id}-${Date.now()}-${file.name}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from("doll-assets")
+      .upload(filePath, file, { upsert: true });
+
+    if (uploadError) {
+      setError(uploadError.message);
+      return;
+    }
+
+    const { data } = supabase.storage
+      .from("doll-assets")
+      .getPublicUrl(filePath);
+
+    const publicImageUrl = data?.publicUrl || "";
+
+    const { error: updateError } = await supabase
+      .from("dolls")
+      .update({ image_url: publicImageUrl })
+      .eq("id", selected.id);
+
+    if (updateError) {
+      setError(updateError.message);
+      return;
+    }
+
+    setIdentity((prev) => ({ ...prev, image_url: publicImageUrl }));
+    setDolls((prev) =>
+      prev.map((d) =>
+        d.id === selected.id ? { ...d, image_url: publicImageUrl } : d
+      )
+    );
+
+    setNotice("Image uploaded.");
   }
 
   function generateContentPack() {
@@ -971,25 +1164,159 @@ export default function Page() {
                         <p style={mutedTextStyle}>
                           This doll is now ready to point a printed QR code to its live story page.
                         </p>
+
                         <div style={qrPlaceholderStyle}>
-                          <div style={{ fontWeight: 700, marginBottom: 6 }}>QR Placeholder</div>
-                          <div style={{ fontSize: 14, color: "#64748b" }}>
-                            Future QR image generation will appear here.
+                          {qrDataUrl ? (
+                            <img
+                              src={qrDataUrl}
+                              alt={`QR code for ${selected?.name || "doll"}`}
+                              style={{ width: 220, height: 220, objectFit: "contain", borderRadius: 12 }}
+                            />
+                          ) : (
+                            <div>
+                              <div style={{ fontWeight: 700, marginBottom: 6 }}>No QR generated yet</div>
+                              <div style={{ fontSize: 14, color: "#64748b" }}>
+                                Generate a QR code for this doll&apos;s public page.
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        <div style={qrStatusBoxStyle(qrStatus)}>
+                          <div style={{ fontWeight: 700, marginBottom: 6 }}>
+                            {qrStatus === "saved"
+                              ? "QR saved successfully"
+                              : qrStatus === "generated"
+                                ? "QR generated but not saved"
+                                : "QR not generated yet"}
+                          </div>
+
+                          <div style={{ fontSize: 14, color: "#475569", lineHeight: 1.6 }}>
+                            {qrStatus === "saved"
+                              ? "This QR is stored in Supabase and linked to this doll."
+                              : qrStatus === "generated"
+                                ? "This QR exists only in the current session until you click Save QR."
+                                : "Generate a QR first to preview it here."}
                           </div>
                         </div>
-                        <button onClick={activateDigitalLayer} style={primaryButton}>
-                          Activate Digital Layer
-                        </button>
+
+                        {qrStatus === "saved" && savedQrUrl ? (
+                          <div style={{ display: "grid", gap: 10, marginTop: 12 }}>
+                            <code style={urlCodeStyle}>{savedQrUrl}</code>
+                            <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                              <button
+                                onClick={() => window.open(savedQrUrl, "_blank")}
+                                style={secondaryButton}
+                              >
+                                Open Saved QR
+                              </button>
+                              <button
+                                onClick={() => copyToClipboard(savedQrUrl, "Saved QR URL copied.")}
+                                style={secondaryButton}
+                              >
+                                Copy Saved QR URL
+                              </button>
+                            </div>
+                          </div>
+                        ) : null}
+
+                        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 14 }}>
+                          <button onClick={activateDigitalLayer} style={primaryButton}>
+                            Activate Digital Layer
+                          </button>
+
+                          <button
+                            onClick={generateQrCode}
+                            style={{
+                              ...secondaryButton,
+                              opacity: qrStatus === "saved" ? 0.65 : 1,
+                              cursor: qrStatus === "saved" ? "not-allowed" : "pointer",
+                            }}
+                            disabled={!publicUrl || qrStatus === "saved"}
+                          >
+                            Generate QR
+                          </button>
+
+                          <button onClick={downloadQrCode} style={secondaryButton} disabled={!qrDataUrl}>
+                            Download PNG
+                          </button>
+
+                          <button onClick={downloadPrintCard} style={secondaryButton} disabled={!qrDataUrl}>
+                            Download Print Card
+                          </button>
+
+                          <button
+                            onClick={uploadQrToSupabase}
+                            style={{
+                              ...secondaryButton,
+                              opacity: qrStatus === "saved" ? 0.65 : 1,
+                              cursor: qrStatus === "saved" ? "not-allowed" : "pointer",
+                            }}
+                            disabled={!qrDataUrl || qrUploading || qrStatus === "saved"}
+                          >
+                            {qrUploading ? "Uploading..." : qrStatus === "saved" ? "Saved" : "Save QR"}
+                          </button>
+                        </div>
+
+                        {qrDataUrl ? (
+                          <div style={printCardWrapperStyle}>
+                            <div ref={printCardRef} style={printCardStyle}>
+                              <div style={printCardNameStyle}>
+                                {identity.name || selected?.name || "Doll"}
+                              </div>
+
+                              <div style={printCardTextStyle}>
+                                Scan to discover her world ✨
+                              </div>
+
+                              <img
+                                src={qrDataUrl}
+                                alt={`Print card QR for ${identity.name || selected?.name || "doll"}`}
+                                style={printCardQrStyle}
+                              />
+
+                              <div style={printCardBrandStyle}>
+                                Maille &amp; Merveille
+                              </div>
+                            </div>
+                          </div>
+                        ) : null}
                       </div>
 
                       <div style={digitalCardStyle}>
                         <div style={sectionLabelStyle}>Visual Block</div>
                         <div style={visualPlaceholderStyle}>
-                          <div>
-                            <div style={{ fontWeight: 700, marginBottom: 6 }}>Image Placeholder</div>
-                            <div style={{ fontSize: 14, color: "#64748b" }}>
-                              Future doll image / illustration / product visual
-                            </div>
+                          <div style={{ width: "100%" }}>
+                            {identity.image_url ? (
+                              <img
+                                src={identity.image_url}
+                                alt="Doll"
+                                style={{
+                                  width: "100%",
+                                  borderRadius: 16,
+                                  objectFit: "cover",
+                                  maxHeight: 260,
+                                }}
+                              />
+                            ) : (
+                              <div>
+                                <div style={{ fontWeight: 700, marginBottom: 6 }}>No image yet</div>
+                                <div style={{ fontSize: 14, color: "#64748b" }}>
+                                  Upload a doll image
+                                </div>
+                              </div>
+                            )}
+
+                            <input
+                              type="file"
+                              accept="image/*"
+                              style={{ marginTop: 12 }}
+                              onChange={async (e) => {
+                                const file = e.target.files?.[0];
+                                if (!file) return;
+                                await uploadImage(file);
+                              }}
+                            />
                           </div>
                         </div>
                       </div>
@@ -1253,7 +1580,7 @@ const qrPlaceholderStyle = {
   margin: "14px 0 18px",
   border: "1px dashed #cbd5e1",
   borderRadius: 18,
-  minHeight: 170,
+  minHeight: 260,
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
@@ -1261,6 +1588,36 @@ const qrPlaceholderStyle = {
   background: "#f8fafc",
   padding: 20,
 };
+
+function qrStatusBoxStyle(status) {
+  if (status === "saved") {
+    return {
+      background: "#ecfdf5",
+      border: "1px solid #86efac",
+      borderRadius: 16,
+      padding: 16,
+      marginTop: 4,
+    };
+  }
+
+  if (status === "generated") {
+    return {
+      background: "#fff7ed",
+      border: "1px solid #fdba74",
+      borderRadius: 16,
+      padding: 16,
+      marginTop: 4,
+    };
+  }
+
+  return {
+    background: "#f8fafc",
+    border: "1px solid #cbd5e1",
+    borderRadius: 16,
+    padding: 16,
+    marginTop: 4,
+  };
+}
 
 const visualPlaceholderStyle = {
   border: "1px dashed #cbd5e1",
@@ -1301,4 +1658,53 @@ const contentGridStyle = {
   display: "grid",
   gridTemplateColumns: "1fr 1fr",
   gap: 20,
+};
+
+const printCardWrapperStyle = {
+  marginTop: 18,
+  display: "flex",
+  justifyContent: "center",
+};
+
+const printCardStyle = {
+  width: 280,
+  background: "#fffaf5",
+  border: "1px solid #e5e7eb",
+  borderRadius: 24,
+  padding: 20,
+  textAlign: "center",
+  boxShadow: "0 10px 30px rgba(15, 23, 42, 0.06)",
+};
+
+const printCardNameStyle = {
+  fontSize: 24,
+  fontWeight: 700,
+  color: "#0f172a",
+  marginBottom: 8,
+};
+
+const printCardTextStyle = {
+  fontSize: 14,
+  color: "#64748b",
+  lineHeight: 1.6,
+  marginBottom: 16,
+};
+
+const printCardQrStyle = {
+  width: 180,
+  height: 180,
+  objectFit: "contain",
+  borderRadius: 16,
+  background: "#ffffff",
+  padding: 10,
+  border: "1px solid #e5e7eb",
+};
+
+const printCardBrandStyle = {
+  marginTop: 14,
+  fontSize: 12,
+  letterSpacing: "0.12em",
+  textTransform: "uppercase",
+  color: "#94a3b8",
+  fontWeight: 700,
 };
