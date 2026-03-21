@@ -1108,6 +1108,8 @@ export default function Page() {
                 ))}
               </div>
             </div>
+
+            <footer style={versionFooterStyle}>{adminVersion.label}</footer>
           </section>
 
           <section style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 28, padding: 22 }}>
@@ -1601,8 +1603,6 @@ export default function Page() {
               <div style={{ color: "#64748b" }}>Create your first doll to begin.</div>
             )}
           </section>
-
-          <footer style={versionFooterStyle}>{adminVersion.label}</footer>
         </div>
       </div>
     </main>
@@ -1898,10 +1898,11 @@ const printCardBrandStyle = {
 
 const versionFooterStyle = {
   marginTop: 18,
-  padding: "0 6px 8px",
+  paddingTop: 16,
+  borderTop: "1px solid #e2e8f0",
   color: "#94a3b8",
   fontSize: 12,
   lineHeight: 1.6,
-  textAlign: "center",
+  textAlign: "left",
   overflowWrap: "anywhere",
 };
