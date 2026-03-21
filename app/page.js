@@ -647,7 +647,7 @@ export default function Page() {
     }
   }
 
-  async function uploadQrToSupabase(qrSource = qrDataUrl) {
+  async function uploadQrToSupabase(qrSource = qrDataUrl, forceRefresh = false) {
     if (!qrSource || !selected) {
       setError("Generate a QR code first.");
       return false;
@@ -679,10 +679,12 @@ export default function Page() {
         .getPublicUrl(filePath);
 
       const publicQrUrl = data?.publicUrl || "";
+      const storedQrUrl =
+        publicQrUrl && forceRefresh ? `${publicQrUrl}?v=${Date.now()}` : publicQrUrl;
 
       const { error: updateError } = await supabase
         .from("dolls")
-        .update({ qr_code_url: publicQrUrl })
+        .update({ qr_code_url: storedQrUrl })
         .eq("id", selected.id);
 
       if (updateError) {
@@ -691,11 +693,11 @@ export default function Page() {
 
       setDolls((prev) =>
         prev.map((d) =>
-          d.id === selected.id ? { ...d, qr_code_url: publicQrUrl } : d
+          d.id === selected.id ? { ...d, qr_code_url: storedQrUrl } : d
         )
       );
 
-      setQrDataUrl(publicQrUrl);
+      setQrDataUrl(storedQrUrl);
       setNotice("QR code uploaded and linked to this doll.");
       return true;
     } catch (err) {
@@ -719,7 +721,7 @@ export default function Page() {
 
     setQrDataUrl(dataUrl);
 
-    const saved = await uploadQrToSupabase(dataUrl);
+    const saved = await uploadQrToSupabase(dataUrl, true);
     if (saved) {
       setNotice("QR code regenerated and linked to this doll.");
     }
