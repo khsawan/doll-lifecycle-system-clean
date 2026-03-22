@@ -10,8 +10,8 @@ export async function POST(request) {
     const body = await request.json();
     const { provider, task, payload } = body || {};
 
-    if (typeof provider !== "string" || !provider.trim()) {
-      return badRequest("Missing provider.");
+    if (provider !== undefined && provider !== null && (typeof provider !== "string" || !provider.trim())) {
+      return badRequest("Invalid provider.");
     }
 
     if (typeof task !== "string" || !task.trim()) {
@@ -23,7 +23,7 @@ export async function POST(request) {
     }
 
     const result = await generateAIContent({
-      provider: provider.trim(),
+      provider: typeof provider === "string" ? provider.trim() : "",
       task: task.trim(),
       payload,
     });

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toPng } from "html-to-image";
 import QRCode from "qrcode";
@@ -12,15 +13,13 @@ const DEFAULT_THEMES = [
   "Cozy World",
 ];
 const STORY_TONES = ["Gentle", "Playful", "Magical"];
-const STATUSES = ["new", "identity", "story", "digital", "content", "sales", "live"];
+const STATUSES = ["new", "identity", "story", "digital", "content", "sales"];
 const PRODUCTION_STAGES = [
   { value: 1, label: "Registered" },
   { value: 2, label: "Character" },
   { value: 3, label: "Content" },
   { value: 4, label: "Gateway" },
   { value: 5, label: "Ready" },
-  { value: 6, label: "Sold" },
-  { value: 7, label: "Delivered" },
 ];
 const DEPARTMENTS = [
   "Overview",
@@ -31,6 +30,16 @@ const DEPARTMENTS = [
   "Commerce",
   "Danger Zone",
 ];
+const ADMIN_AUTH_STORAGE_KEY = "doll_admin_authenticated";
+const ADMIN_PASSWORD =
+  process.env.NEXT_PUBLIC_ADMIN_PASSWORD?.trim() ||
+  process.env.ADMIN_PASSWORD?.trim() ||
+  "";
+
+function normalizeLifecycleStatus(value) {
+  const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
+  return normalized === "live" ? "sales" : normalized;
+}
 
 function slugify(value) {
   return (value || "")
@@ -42,8 +51,9 @@ function slugify(value) {
 }
 
 function statusLabel(status) {
-  if (!status) return "New";
-  return status.charAt(0).toUpperCase() + status.slice(1);
+  const normalized = normalizeLifecycleStatus(status);
+  if (!normalized) return "New";
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
 }
 
 function formatStatusToken(value) {
@@ -81,7 +91,7 @@ function readinessMissingLabel(key) {
 }
 
 function progressFromStatus(status) {
-  const idx = STATUSES.indexOf(status || "new");
+  const idx = STATUSES.indexOf(normalizeLifecycleStatus(status) || "new");
   return idx >= 0 ? Math.round(((idx + 1) / STATUSES.length) * 100) : 0;
 }
 
@@ -321,6 +331,11 @@ function buildReadiness(identity, story, contentPack, order, publicUrl) {
 
 export default function Page() {
   const adminVersion = buildAdminVersionInfo();
+  const adminProtectionEnabled = Boolean(ADMIN_PASSWORD);
+  const [isAuthenticated, setIsAuthenticated] = useState(!adminProtectionEnabled);
+  const [authChecked, setAuthChecked] = useState(!adminProtectionEnabled);
+  const [loginPassword, setLoginPassword] = useState("");
+  const [loginError, setLoginError] = useState("");
   const [themes, setThemes] = useState(DEFAULT_THEMES);
   const [dolls, setDolls] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
@@ -373,7 +388,6 @@ export default function Page() {
 
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
-  const [activeTab] = useState("identity");
   const [activeDepartment, setActiveDepartment] = useState("");
 
   const selected = useMemo(
@@ -400,7 +414,7 @@ export default function Page() {
   const publicPath = selectedSlug ? `/doll/${selectedSlug}` : "";
   const publicUrl = selectedSlug && publicBaseUrl ? `${publicBaseUrl}${publicPath}` : "";
   const readiness = buildReadiness(identity, story, contentPack, order, publicUrl);
-  const legacyLifecycleStatus = (selected?.status || "").toLowerCase();
+  const legacyLifecycleStatus = normalizeLifecycleStatus(selected?.status);
   const rawProductionStage = selected?.production_stage;
   const parsedProductionStage =
     rawProductionStage === null || rawProductionStage === undefined || rawProductionStage === ""
@@ -410,7 +424,7 @@ export default function Page() {
     ? parsedProductionStage
     : legacyLifecycleStatus === "digital"
       ? 4
-      : ["content", "sales", "live"].includes(legacyLifecycleStatus)
+      : ["content", "sales"].includes(legacyLifecycleStatus)
         ? 5
         : 1;
   const legacySalesStatus = (selected?.sales_status || "").toLowerCase();
@@ -433,9 +447,9 @@ export default function Page() {
         : "not_generated";
   const effectiveLifecycleStatus =
     typeof selected?.status === "string" && selected.status.trim()
-      ? selected.status.trim()
+      ? normalizeLifecycleStatus(selected.status)
       : effectiveProductionStage >= 5
-        ? "live"
+        ? "sales"
         : effectiveProductionStage >= 4
           ? "digital"
           : "new";
@@ -488,16 +502,6 @@ export default function Page() {
       contentPack.blurb?.trim() ||
       contentPack.cta?.trim()
   );
-  const lifecycleHints = [
-    qrSalesStatus === "reserved" ? "This doll is reserved - avoid changing its public link." : "",
-    qrSalesStatus === "sold" ? "You can archive this doll once it is delivered." : "",
-    selectedIsArchived
-      ? "This doll is archived. Keep changes minimal unless you plan to move it back into the active workflow."
-      : "",
-    qrSalesStatus === "sold" || qrAvailabilityStatus === "assigned"
-      ? "Changes to QR or public link may affect the owner's access."
-      : "",
-  ].filter(Boolean);
   const digitalHints = [
     !hasQrIdentity ? "Generate a QR code to activate this doll." : "",
     hasQrIdentity ? "This QR links the physical doll to its digital story page." : "",
@@ -631,6 +635,108 @@ export default function Page() {
     : readinessCompleteCount > 0
       ? "In progress"
       : "Not ready";
+  const productionWorkflowComplete =
+    selectedReadiness.production.complete &&
+    selectedReadiness.character.complete &&
+    selectedReadiness.content.complete &&
+    selectedReadiness.digital.complete;
+  const overviewBlockingItems = readinessOverviewItems.filter(
+    (item) => !item.state.complete && item.key !== "commercial"
+  );
+  const qrReady =
+    selectedReadiness.production.complete &&
+    selectedReadiness.character.complete &&
+    selectedReadiness.content.complete;
+  const qrReadinessMessage =
+    "Complete Production, Character, and Content before generating a QR code.";
+  const saleTransitionReadinessMessage =
+    "Complete all readiness sections before confirming or progressing this order.";
+  const workspaceNextStepMessage = (() => {
+    if (!selectedReadiness.production.complete) {
+      if (selectedReadiness.production.missing.includes("image_url")) {
+        return "Next step: add the doll image in Production.";
+      }
+
+      return "Next step: complete Production before advancing this doll.";
+    }
+
+    if (!selectedReadiness.character.complete) {
+      return "Next step: complete Character before advancing to Content.";
+    }
+
+    if (!selectedReadiness.content.complete) {
+      if (selectedReadiness.content.missing.includes("story_content")) {
+        return "Next step: complete Story in Content.";
+      }
+
+      if (selectedReadiness.content.missing.includes("content_pack")) {
+        return "Next step: complete the Content Pack.";
+      }
+
+      if (selectedReadiness.content.missing.includes("social_content")) {
+        return "Next step: complete social content.";
+      }
+
+      return "Next step: complete Content before advancing to Gateway.";
+    }
+
+    if (!selectedReadiness.digital.complete) {
+      if (selectedReadiness.digital.missing.includes("qr_code_url") && qrReady) {
+        return "Next step: generate the QR code in Digital.";
+      }
+
+      return "Next step: finish the Digital setup.";
+    }
+
+    if (!selectedReadiness.commercial.complete) {
+      return "Next step: complete Commerce to progress this doll into order flow.";
+    }
+
+    return "All production stages are complete.";
+  })();
+  const overviewNextActionMessage = (() => {
+    if (!selectedReadiness.production.complete) {
+      if (selectedReadiness.production.missing.includes("image_url")) {
+        return "Go to Production and add the doll image.";
+      }
+
+      return "Go to Production and complete the missing details.";
+    }
+
+    if (!selectedReadiness.character.complete) {
+      return "Go to Character and complete the identity details.";
+    }
+
+    if (!selectedReadiness.content.complete) {
+      if (selectedReadiness.content.missing.includes("story_content")) {
+        return "Go to Content and complete the story.";
+      }
+
+      if (selectedReadiness.content.missing.includes("content_pack")) {
+        return "Go to Content and complete the content pack.";
+      }
+
+      if (selectedReadiness.content.missing.includes("social_content")) {
+        return "Go to Content and complete social content.";
+      }
+
+      return "Go to Content and finish the remaining content.";
+    }
+
+    if (!selectedReadiness.digital.complete) {
+      if (selectedReadiness.digital.missing.includes("qr_code_url") && qrReady) {
+        return "Go to Digital and generate the QR code.";
+      }
+
+      return "Go to Digital and finish the public link setup.";
+    }
+
+    if (!selectedReadiness.commercial.complete) {
+      return "Go to Commerce and set the order status.";
+    }
+
+    return "This doll is fully configured.";
+  })();
   const currentDepartment = selected ? activeDepartment || "Overview" : "";
   const currentStorySignature = sectionStateSignature(buildStorySectionSnapshot(story));
   const currentContentPackSignature = sectionStateSignature(buildContentPackSectionSnapshot(contentPack));
@@ -871,15 +977,29 @@ export default function Page() {
   }
 
   useEffect(() => {
-    loadThemes();
-    loadDolls();
-  }, []);
+    if (!adminProtectionEnabled) {
+      return;
+    }
+
+    const storedAuth = window.localStorage.getItem(ADMIN_AUTH_STORAGE_KEY);
+    setIsAuthenticated(storedAuth === "true");
+    setAuthChecked(true);
+  }, [adminProtectionEnabled]);
 
   useEffect(() => {
-    if (selected) {
+    if (!authChecked || !isAuthenticated) {
+      return;
+    }
+
+    loadThemes();
+    loadDolls();
+  }, [authChecked, isAuthenticated]);
+
+  useEffect(() => {
+    if (authChecked && isAuthenticated && selected) {
       loadDetails(selected.id);
     }
-  }, [selectedId, dolls.length]);
+  }, [authChecked, isAuthenticated, selectedId, dolls.length]);
 
   useEffect(() => {
     setShowQrRegenerateWarning(false);
@@ -896,6 +1016,90 @@ export default function Page() {
   useEffect(() => {
     setActiveDepartment(selected ? "Overview" : "");
   }, [selected?.id]);
+
+  function handleLogin(event) {
+    event.preventDefault();
+    setLoginError("");
+
+    if (!adminProtectionEnabled) {
+      setIsAuthenticated(true);
+      setAuthChecked(true);
+      return;
+    }
+
+    if (loginPassword === ADMIN_PASSWORD) {
+      window.localStorage.setItem(ADMIN_AUTH_STORAGE_KEY, "true");
+      setIsAuthenticated(true);
+      setLoginPassword("");
+      return;
+    }
+
+    setLoginError("Incorrect password.");
+  }
+
+  function handleLogout() {
+    window.localStorage.removeItem(ADMIN_AUTH_STORAGE_KEY);
+    window.location.reload();
+  }
+
+  if (!authChecked) {
+    return (
+      <main style={{ background: "#f6f7fb", minHeight: "100vh", padding: 32, fontFamily: "Inter, Arial, sans-serif", color: "#0f172a" }}>
+        <div style={{ minHeight: "calc(100vh - 64px)", display: "grid", placeItems: "center" }}>
+          <div style={{ width: "100%", maxWidth: 420, background: "#fff", border: "1px solid #e2e8f0", borderRadius: 28, padding: 28 }}>
+            <div style={{ letterSpacing: 3, fontSize: 14, color: "#64748b", marginBottom: 8 }}>
+              MAILLE & MERVEILLE
+            </div>
+            <h1 style={{ fontSize: 36, margin: 0, lineHeight: 1.08 }}>Doll Lifecycle System</h1>
+            <p style={{ fontSize: 16, color: "#475569", marginTop: 12, marginBottom: 0 }}>
+              Checking admin access...
+            </p>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  if (adminProtectionEnabled && !isAuthenticated) {
+    return (
+      <main style={{ background: "#f6f7fb", minHeight: "100vh", padding: 32, fontFamily: "Inter, Arial, sans-serif", color: "#0f172a" }}>
+        <div style={{ minHeight: "calc(100vh - 64px)", display: "grid", placeItems: "center" }}>
+          <div style={{ width: "100%", maxWidth: 420, background: "#fff", border: "1px solid #e2e8f0", borderRadius: 28, padding: 28 }}>
+            <div style={{ letterSpacing: 3, fontSize: 14, color: "#64748b", marginBottom: 8 }}>
+              MAILLE & MERVEILLE
+            </div>
+            <h1 style={{ fontSize: 36, margin: 0, lineHeight: 1.08 }}>Admin Access</h1>
+            <p style={{ fontSize: 16, color: "#475569", marginTop: 12 }}>
+              Enter the admin password to continue.
+            </p>
+
+            {loginError ? (
+              <div style={{ marginTop: 16, background: "#fee2e2", border: "1px solid #fca5a5", color: "#991b1b", padding: 14, borderRadius: 16 }}>
+                {loginError}
+              </div>
+            ) : null}
+
+            <form onSubmit={handleLogin} style={{ marginTop: 20 }}>
+              <label style={labelStyle}>Password</label>
+              <input
+                type="password"
+                value={loginPassword}
+                onChange={(event) => {
+                  setLoginPassword(event.target.value);
+                  if (loginError) setLoginError("");
+                }}
+                style={inputStyle}
+              />
+
+              <button type="submit" style={{ ...primaryButton, width: "100%", marginTop: 16 }}>
+                Enter
+              </button>
+            </form>
+          </div>
+        </div>
+      </main>
+    );
+  }
 
   async function createDoll() {
     setError("");
@@ -1112,10 +1316,28 @@ export default function Page() {
   async function advanceStage() {
     if (!selected) return;
 
-    const idx = STATUSES.indexOf(selected.status || "new");
-    const next = STATUSES[Math.min(idx + 1, STATUSES.length - 1)];
+    setError("");
+    setNotice("");
 
-    const { error } = await supabase.from("dolls").update({ status: next }).eq("id", selected.id);
+    const currentStage = Math.min(Math.max(Math.round(effectiveProductionStage || 1), 1), PRODUCTION_STAGES.length);
+
+    if (currentStage >= PRODUCTION_STAGES.length) {
+      setNotice(`This doll is already at Stage ${currentStage}: ${pipelineStageLabel}.`);
+      return;
+    }
+
+    const nextStageValue = currentStage + 1;
+    const nextStage = PRODUCTION_STAGES.find((stage) => stage.value === nextStageValue);
+
+    if (!nextStage) {
+      setError("Unable to determine the next production stage.");
+      return;
+    }
+
+    const { error } = await supabase
+      .from("dolls")
+      .update({ production_stage: nextStage.value })
+      .eq("id", selected.id);
 
     if (error) {
       setError(error.message);
@@ -1123,10 +1345,10 @@ export default function Page() {
     }
 
     setDolls((prev) =>
-      prev.map((d) => (d.id === selected.id ? { ...d, status: next } : d))
+      prev.map((d) => (d.id === selected.id ? { ...d, production_stage: nextStage.value } : d))
     );
 
-    setNotice(`Advanced to ${statusLabel(next)}.`);
+    setNotice(`Advanced production stage to ${nextStage.value} - ${nextStage.label}.`);
   }
 
   function generateDraft() {
@@ -1189,11 +1411,25 @@ export default function Page() {
     }
   }
 
+  function ensureQrGenerationReady() {
+    if (qrReady) {
+      return true;
+    }
+
+    setNotice("");
+    setError(qrReadinessMessage);
+    return false;
+  }
+
   async function generateQrCode() {
     if (!selected) return false;
 
     setError("");
     setNotice("");
+
+    if (!ensureQrGenerationReady()) {
+      return false;
+    }
 
     const dataUrl = await createQrCodeDataUrl();
     if (!dataUrl) {
@@ -1324,6 +1560,10 @@ export default function Page() {
     setError("");
     setNotice("");
 
+    if (!ensureQrGenerationReady()) {
+      return;
+    }
+
     const dataUrl = await createQrCodeDataUrl();
     if (!dataUrl) {
       return;
@@ -1338,6 +1578,10 @@ export default function Page() {
   }
 
   function requestQrRegeneration() {
+    if (!ensureQrGenerationReady()) {
+      return;
+    }
+
     if (!savedQrUrl) {
       generateQrCode();
       return;
@@ -1353,6 +1597,11 @@ export default function Page() {
 
   async function confirmQrRegeneration() {
     setShowQrRegenerateWarning(false);
+
+    if (!ensureQrGenerationReady()) {
+      return;
+    }
+
     await regenerateSavedQrCode();
   }
 
@@ -1693,6 +1942,11 @@ export default function Page() {
     setError("");
     setNotice("");
 
+    const nextSalesStatus = order.order_status === "delivered" ? "sold" : "reserved";
+    const saleTransitionBlocked =
+      !selectedReadiness.overall &&
+      (nextSalesStatus !== effectiveCommercialStatus || selected.status !== "sales");
+
     await supabase.from("orders").delete().eq("doll_id", selected.id);
 
     const { error } = await supabase.from("orders").insert({
@@ -1706,10 +1960,15 @@ export default function Page() {
       return;
     }
 
+    if (saleTransitionBlocked) {
+      setError(`Order details saved, but ${saleTransitionReadinessMessage.toLowerCase()}`);
+      return;
+    }
+
     await supabase
       .from("dolls")
       .update({
-        sales_status: order.order_status === "delivered" ? "sold" : "reserved",
+        sales_status: nextSalesStatus,
         status: "sales",
       })
       .eq("id", selected.id);
@@ -1719,7 +1978,7 @@ export default function Page() {
         d.id === selected.id
           ? {
               ...d,
-              sales_status: order.order_status === "delivered" ? "sold" : "reserved",
+              sales_status: nextSalesStatus,
               status: "sales",
             }
           : d
@@ -1728,35 +1987,6 @@ export default function Page() {
 
     setNotice("Order saved.");
   }
-
-  async function markAsLive() {
-    if (!selected) return;
-
-    if (readiness.score < 100) {
-      setError(`This doll is not fully ready yet. Missing: ${readiness.missing.join(", ")}`);
-      return;
-    }
-
-    setError("");
-    setNotice("");
-
-    const { error } = await supabase
-      .from("dolls")
-      .update({ status: "live" })
-      .eq("id", selected.id);
-
-    if (error) {
-      setError(error.message);
-      return;
-    }
-
-    setDolls((prev) =>
-      prev.map((d) => (d.id === selected.id ? { ...d, status: "live" } : d))
-    );
-
-    setNotice("Doll marked as live.");
-  }
-
   async function copyToClipboard(value, successMessage) {
     try {
       await navigator.clipboard.writeText(value);
@@ -1768,13 +1998,10 @@ export default function Page() {
 
   const metrics = {
     total: dolls.length,
-    live: dolls.filter((d) => d.status === "live").length,
+    commerce: dolls.filter((d) => normalizeLifecycleStatus(d.status) === "sales").length,
     available: dolls.filter((d) => d.availability_status === "available").length,
     sold: dolls.filter((d) => d.sales_status === "sold").length,
   };
-  const isContentDepartmentView = currentDepartment === "Content";
-  const showStorySection = isContentDepartmentView || activeTab === "story";
-  const showContentPackSection = isContentDepartmentView || activeTab === "content";
   const productionDepartmentContent = (
     <div style={{ marginTop: 24, display: "grid", gap: 20 }}>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 12 }}>
@@ -1933,90 +2160,14 @@ export default function Page() {
   );
   const contentDepartmentContent = (
     <div style={{ marginTop: 24, display: "grid", gap: 20 }}>
-      {showStorySection ? (
-        <div>
-          {!hasStoryContent ? (
-            <div style={{ ...hintStackStyle, marginBottom: 16 }}>
-              <div style={operatorHintStyle("muted")}>Add a story to enrich the doll&apos;s identity.</div>
-            </div>
-          ) : null}
-
-          <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 20, padding: 16, marginBottom: 20 }}>
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                gap: 12,
-                flexWrap: "wrap",
-                marginBottom: 12,
-              }}
-            >
-              <div style={{ fontWeight: 700 }}>Story Engine v2</div>
-              <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-                <button onClick={() => applyTone(storyTone)} style={primaryButton} disabled={storyGenerating}>
-                  {storyGenerating ? "Generating..." : "Generate with AI"}
-                </button>
-                <button
-                  onClick={saveStory}
-                  style={sectionSaveButtonStyle(storyDirty, storySaving, storyHasSavedSnapshot)}
-                  disabled={storySaveDisabled}
-                >
-                  {storySaveLabel}
-                </button>
-              </div>
-            </div>
-
-            <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-              <label style={{ color: "#475569" }}>Tone</label>
-
-              <select value={storyTone} onChange={(e) => setStoryTone(e.target.value)} style={{ ...inputStyle, width: 180 }}>
-                {STORY_TONES.map((tone) => (
-                  <option key={tone} value={tone}>{tone}</option>
-                ))}
-              </select>
-
-              <button onClick={() => applyTone("Gentle")} style={secondaryButton} disabled={storyGenerating}>Gentle</button>
-              <button onClick={() => applyTone("Playful")} style={secondaryButton} disabled={storyGenerating}>Playful</button>
-              <button onClick={() => applyTone("Magical")} style={secondaryButton} disabled={storyGenerating}>Magical</button>
-            </div>
+      <div>
+        {!hasStoryContent ? (
+          <div style={{ ...hintStackStyle, marginBottom: 16 }}>
+            <div style={operatorHintStyle("muted")}>Add a story to enrich the doll&apos;s identity.</div>
           </div>
+        ) : null}
 
-          <div>
-            <label style={labelStyle}>Card teaser</label>
-            <textarea value={story.teaser} onChange={(e) => setStory({ ...story, teaser: e.target.value })} style={{ ...inputStyle, minHeight: 120 }} />
-          </div>
-
-          <div style={{ marginTop: 16 }}>
-            <label style={labelStyle}>Main story</label>
-            <textarea value={story.mainStory} onChange={(e) => setStory({ ...story, mainStory: e.target.value })} style={{ ...inputStyle, minHeight: 120 }} />
-          </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 16 }}>
-            <div>
-              <label style={labelStyle}>Mini story 1</label>
-              <textarea value={story.mini1} onChange={(e) => setStory({ ...story, mini1: e.target.value })} style={{ ...inputStyle, minHeight: 120 }} />
-            </div>
-
-            <div>
-              <label style={labelStyle}>Mini story 2</label>
-              <textarea value={story.mini2} onChange={(e) => setStory({ ...story, mini2: e.target.value })} style={{ ...inputStyle, minHeight: 120 }} />
-            </div>
-          </div>
-
-        </div>
-      ) : null}
-
-      {showContentPackSection ? (
-        <div style={{ display: "grid", gap: 20 }}>
-          {!hasContentAssets ? (
-            <div style={hintStackStyle}>
-              <div style={operatorHintStyle("muted")}>
-                Add content assets to expand the digital experience.
-              </div>
-            </div>
-          ) : null}
-
+        <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 20, padding: 16, marginBottom: 20 }}>
           <div
             style={{
               display: "flex",
@@ -2024,141 +2175,212 @@ export default function Page() {
               alignItems: "center",
               gap: 12,
               flexWrap: "wrap",
+              marginBottom: 12,
             }}
           >
-            <div style={{ fontWeight: 700 }}>Content Pack</div>
+            <div style={{ fontWeight: 700 }}>Story Engine v2</div>
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-              <button onClick={generateContentPack} style={primaryButton} disabled={contentPackGenerating}>
-                {contentPackGenerating ? "Generating..." : "Generate with AI"}
+              <button onClick={() => applyTone(storyTone)} style={primaryButton} disabled={storyGenerating}>
+                {storyGenerating ? "Generating..." : "Generate with AI"}
               </button>
               <button
-                onClick={saveContentPack}
-                style={sectionSaveButtonStyle(
-                  contentPackDirty,
-                  contentPackSaving,
-                  contentPackHasSavedSnapshot
-                )}
-                disabled={contentPackSaveDisabled}
+                onClick={saveStory}
+                style={sectionSaveButtonStyle(storyDirty, storySaving, storyHasSavedSnapshot)}
+                disabled={storySaveDisabled}
               >
-                {contentPackSaveLabel}
+                {storySaveLabel}
               </button>
             </div>
           </div>
 
-          <div style={contentCardStyle}>
-            <div style={sectionLabelStyle}>Instagram Caption</div>
-            <textarea
-              value={contentPack.caption}
-              onChange={(e) => setContentPack({ ...contentPack, caption: e.target.value })}
-              style={{ ...inputStyle, minHeight: 140 }}
-            />
-          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            <label style={{ color: "#475569" }}>Tone</label>
 
-          <div style={contentGridStyle}>
-            <div style={contentCardStyle}>
-              <div style={sectionLabelStyle}>Short Promo Hook</div>
-              <textarea
-                value={contentPack.hook}
-                onChange={(e) => setContentPack({ ...contentPack, hook: e.target.value })}
-                style={{ ...inputStyle, minHeight: 120 }}
-              />
-            </div>
+            <select value={storyTone} onChange={(e) => setStoryTone(e.target.value)} style={{ ...inputStyle, width: 180 }}>
+              {STORY_TONES.map((tone) => (
+                <option key={tone} value={tone}>{tone}</option>
+              ))}
+            </select>
 
-            <div style={contentCardStyle}>
-              <div style={sectionLabelStyle}>CTA</div>
-              <textarea
-                value={contentPack.cta}
-                onChange={(e) => setContentPack({ ...contentPack, cta: e.target.value })}
-                style={{ ...inputStyle, minHeight: 120 }}
-              />
-            </div>
-          </div>
-
-          <div style={contentCardStyle}>
-            <div style={sectionLabelStyle}>Product Blurb</div>
-            <textarea
-              value={contentPack.blurb}
-              onChange={(e) => setContentPack({ ...contentPack, blurb: e.target.value })}
-              style={{ ...inputStyle, minHeight: 140 }}
-            />
-          </div>
-
-          <div style={contentCardStyle}>
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                gap: 12,
-                flexWrap: "wrap",
-                marginBottom: 12,
-              }}
-            >
-              <div style={{ ...sectionLabelStyle, marginBottom: 0 }}>Social Content</div>
-              <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-                <button
-                  type="button"
-                  onClick={generateSocialContent}
-                  style={primaryButton}
-                  disabled={socialGenerating}
-                >
-                  {socialGenerating ? "Generating..." : "Generate with AI"}
-                </button>
-                <button
-                  onClick={saveIdentity}
-                  style={sectionSaveButtonStyle(socialDirty, socialSaving, socialHasSavedSnapshot)}
-                  disabled={socialSaveDisabled}
-                >
-                  {socialSaveLabel}
-                </button>
-              </div>
-            </div>
-
-            <div style={{ display: "grid", gap: 16 }}>
-              <div>
-                <label style={labelStyle}>Hook</label>
-                <input
-                  value={identity.social_hook}
-                  onChange={(e) => setIdentity({ ...identity, social_hook: e.target.value })}
-                  style={inputStyle}
-                />
-              </div>
-
-              <div>
-                <label style={labelStyle}>Caption</label>
-                <textarea
-                  value={identity.social_caption}
-                  onChange={(e) => setIdentity({ ...identity, social_caption: e.target.value })}
-                  style={{ ...inputStyle, minHeight: 140, resize: "vertical" }}
-                />
-              </div>
-
-              <div>
-                <label style={labelStyle}>CTA</label>
-                <input
-                  value={identity.social_cta}
-                  onChange={(e) => setIdentity({ ...identity, social_cta: e.target.value })}
-                  style={inputStyle}
-                />
-              </div>
-
-              <div>
-                <label style={labelStyle}>Social Status</label>
-                <select
-                  value={identity.social_status}
-                  onChange={(e) => setIdentity({ ...identity, social_status: e.target.value })}
-                  style={inputStyle}
-                >
-                  <option value="draft">Draft</option>
-                  <option value="ready_to_post">Ready to Post</option>
-                  <option value="posted">Posted</option>
-                </select>
-              </div>
-
-            </div>
+            <button onClick={() => applyTone("Gentle")} style={secondaryButton} disabled={storyGenerating}>Gentle</button>
+            <button onClick={() => applyTone("Playful")} style={secondaryButton} disabled={storyGenerating}>Playful</button>
+            <button onClick={() => applyTone("Magical")} style={secondaryButton} disabled={storyGenerating}>Magical</button>
           </div>
         </div>
-      ) : null}
+
+        <div>
+          <label style={labelStyle}>Card teaser</label>
+          <textarea value={story.teaser} onChange={(e) => setStory({ ...story, teaser: e.target.value })} style={{ ...inputStyle, minHeight: 120 }} />
+        </div>
+
+        <div style={{ marginTop: 16 }}>
+          <label style={labelStyle}>Main story</label>
+          <textarea value={story.mainStory} onChange={(e) => setStory({ ...story, mainStory: e.target.value })} style={{ ...inputStyle, minHeight: 120 }} />
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 16 }}>
+          <div>
+            <label style={labelStyle}>Mini story 1</label>
+            <textarea value={story.mini1} onChange={(e) => setStory({ ...story, mini1: e.target.value })} style={{ ...inputStyle, minHeight: 120 }} />
+          </div>
+
+          <div>
+            <label style={labelStyle}>Mini story 2</label>
+            <textarea value={story.mini2} onChange={(e) => setStory({ ...story, mini2: e.target.value })} style={{ ...inputStyle, minHeight: 120 }} />
+          </div>
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gap: 20 }}>
+        {!hasContentAssets ? (
+          <div style={hintStackStyle}>
+            <div style={operatorHintStyle("muted")}>
+              Add content assets to expand the digital experience.
+            </div>
+          </div>
+        ) : null}
+
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: 12,
+            flexWrap: "wrap",
+          }}
+        >
+          <div style={{ fontWeight: 700 }}>Content Pack</div>
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+            <button onClick={generateContentPack} style={primaryButton} disabled={contentPackGenerating}>
+              {contentPackGenerating ? "Generating..." : "Generate with AI"}
+            </button>
+            <button
+              onClick={saveContentPack}
+              style={sectionSaveButtonStyle(
+                contentPackDirty,
+                contentPackSaving,
+                contentPackHasSavedSnapshot
+              )}
+              disabled={contentPackSaveDisabled}
+            >
+              {contentPackSaveLabel}
+            </button>
+          </div>
+        </div>
+
+        <div style={contentCardStyle}>
+          <div style={sectionLabelStyle}>Instagram Caption</div>
+          <textarea
+            value={contentPack.caption}
+            onChange={(e) => setContentPack({ ...contentPack, caption: e.target.value })}
+            style={{ ...inputStyle, minHeight: 140 }}
+          />
+        </div>
+
+        <div style={contentGridStyle}>
+          <div style={contentCardStyle}>
+            <div style={sectionLabelStyle}>Short Promo Hook</div>
+            <textarea
+              value={contentPack.hook}
+              onChange={(e) => setContentPack({ ...contentPack, hook: e.target.value })}
+              style={{ ...inputStyle, minHeight: 120 }}
+            />
+          </div>
+
+          <div style={contentCardStyle}>
+            <div style={sectionLabelStyle}>CTA</div>
+            <textarea
+              value={contentPack.cta}
+              onChange={(e) => setContentPack({ ...contentPack, cta: e.target.value })}
+              style={{ ...inputStyle, minHeight: 120 }}
+            />
+          </div>
+        </div>
+
+        <div style={contentCardStyle}>
+          <div style={sectionLabelStyle}>Product Blurb</div>
+          <textarea
+            value={contentPack.blurb}
+            onChange={(e) => setContentPack({ ...contentPack, blurb: e.target.value })}
+            style={{ ...inputStyle, minHeight: 140 }}
+          />
+        </div>
+
+        <div style={contentCardStyle}>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              gap: 12,
+              flexWrap: "wrap",
+              marginBottom: 12,
+            }}
+          >
+            <div style={{ ...sectionLabelStyle, marginBottom: 0 }}>Social Content</div>
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+              <button
+                type="button"
+                onClick={generateSocialContent}
+                style={primaryButton}
+                disabled={socialGenerating}
+              >
+                {socialGenerating ? "Generating..." : "Generate with AI"}
+              </button>
+              <button
+                onClick={saveIdentity}
+                style={sectionSaveButtonStyle(socialDirty, socialSaving, socialHasSavedSnapshot)}
+                disabled={socialSaveDisabled}
+              >
+                {socialSaveLabel}
+              </button>
+            </div>
+          </div>
+
+          <div style={{ display: "grid", gap: 16 }}>
+            <div>
+              <label style={labelStyle}>Hook</label>
+              <input
+                value={identity.social_hook}
+                onChange={(e) => setIdentity({ ...identity, social_hook: e.target.value })}
+                style={inputStyle}
+              />
+            </div>
+
+            <div>
+              <label style={labelStyle}>Caption</label>
+              <textarea
+                value={identity.social_caption}
+                onChange={(e) => setIdentity({ ...identity, social_caption: e.target.value })}
+                style={{ ...inputStyle, minHeight: 140, resize: "vertical" }}
+              />
+            </div>
+
+            <div>
+              <label style={labelStyle}>CTA</label>
+              <input
+                value={identity.social_cta}
+                onChange={(e) => setIdentity({ ...identity, social_cta: e.target.value })}
+                style={inputStyle}
+              />
+            </div>
+
+            <div>
+              <label style={labelStyle}>Social Status</label>
+              <select
+                value={identity.social_status}
+                onChange={(e) => setIdentity({ ...identity, social_status: e.target.value })}
+                style={inputStyle}
+              >
+                <option value="draft">Draft</option>
+                <option value="ready_to_post">Ready to Post</option>
+                <option value="posted">Posted</option>
+              </select>
+            </div>
+
+          </div>
+        </div>
+      </div>
     </div>
   );
   const digitalDepartmentContent = (
@@ -2254,7 +2476,7 @@ export default function Page() {
             <button
               onClick={savedQrUrl ? requestQrRegeneration : generateQrCode}
               style={savedQrUrl ? secondaryButton : primaryButton}
-              disabled={!publicUrl || qrUploading}
+              disabled={!publicUrl || qrUploading || !qrReady}
             >
               {qrUploading
                 ? savedQrUrl
@@ -2281,6 +2503,14 @@ export default function Page() {
               Download Print Card
             </button>
           </div>
+
+          {!qrReady ? (
+            <div style={{ ...hintStackStyle, marginTop: 12 }}>
+              <div style={operatorHintStyle("warn")}>
+                {qrReadinessMessage}
+              </div>
+            </div>
+          ) : null}
 
           {showQrRegenerateWarning ? (
             <div style={qrWarningBoxStyle}>
@@ -2525,87 +2755,41 @@ export default function Page() {
 
   return (
     <main style={{ background: "#f6f7fb", minHeight: "100vh", padding: 32, fontFamily: "Inter, Arial, sans-serif", color: "#0f172a" }}>
-      <div style={{ maxWidth: 1220, margin: "0 auto" }}>
-        <div style={{ letterSpacing: 3, fontSize: 14, color: "#64748b", marginBottom: 8 }}>
-          MAILLE & MERVEILLE
-        </div>
+      <div style={{ maxWidth: 1320, margin: "0 auto" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", gap: 16, flexWrap: "wrap" }}>
+          <div>
+            <div style={{ letterSpacing: 3, fontSize: 14, color: "#64748b", marginBottom: 8 }}>
+              MAILLE & MERVEILLE
+            </div>
 
-        <h1 style={{ fontSize: 50, margin: 0, lineHeight: 1.05 }}>
-          Doll Lifecycle System
-        </h1>
+            <h1 style={{ fontSize: 50, margin: 0, lineHeight: 1.05 }}>
+              Doll Lifecycle System
+            </h1>
+          </div>
+
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <Link
+              href="/settings"
+              style={{ ...secondaryButton, textDecoration: "none", display: "inline-flex", alignItems: "center" }}
+            >
+              Settings
+            </Link>
+            {adminProtectionEnabled ? (
+              <button onClick={handleLogout} style={secondaryButton}>
+                Logout
+              </button>
+            ) : null}
+          </div>
+        </div>
 
         <p style={{ fontSize: 18, color: "#475569", maxWidth: 860, marginTop: 12 }}>
           A full internal pipeline that transforms every handmade doll into a character, a living digital story asset, and a scalable brand node.
         </p>
 
-        <section
-          style={{
-            marginTop: 24,
-            background: "#fff",
-            border: "1px solid #e2e8f0",
-            borderRadius: 22,
-            padding: 20,
-          }}
-        >
-          <div style={{ display: "grid", gap: 18 }}>
-            <div>
-              <div style={{ ...sectionLabelStyle, marginBottom: 10 }}>Pipeline</div>
-              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                {PRODUCTION_STAGES.map((stage) => {
-                  const isCurrent = selected && stage.value === pipelineStageNumber;
-
-                  return (
-                    <div
-                      key={stage.value}
-                      style={{
-                        padding: "12px 14px",
-                        borderRadius: 16,
-                        border: isCurrent ? "1px solid #0f172a" : "1px solid #cbd5e1",
-                        background: isCurrent ? "#0f172a" : "#f8fafc",
-                        color: isCurrent ? "#fff" : "#334155",
-                        minWidth: 112,
-                      }}
-                    >
-                      <div style={{ fontSize: 12, opacity: isCurrent ? 0.82 : 0.7, marginBottom: 4 }}>
-                        {stage.value}
-                      </div>
-                      <div style={{ fontWeight: 700, fontSize: 14 }}>{stage.label}</div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div>
-              <div style={{ ...sectionLabelStyle, marginBottom: 10 }}>Context</div>
-              {selected ? (
-                <div style={operatorHintStyle("muted")}>
-                  <span style={{ fontWeight: 700 }}>{selected.name}</span>{" \u2014 "}Stage{" "}
-                  {pipelineStageNumber}: {pipelineStageLabel}
-                </div>
-              ) : (
-                <div style={{ color: "#64748b" }}>Select a doll to inspect its pipeline and status.</div>
-              )}
-            </div>
-          </div>
-        </section>
-
-        {notice ? (
-          <div style={{ marginTop: 24, background: "#dff5e7", border: "1px solid #9fe0b4", color: "#166534", padding: 16, borderRadius: 16 }}>
-            {notice}
-          </div>
-        ) : null}
-
-        {error ? (
-          <div style={{ marginTop: 24, background: "#fee2e2", border: "1px solid #fca5a5", color: "#991b1b", padding: 16, borderRadius: 16 }}>
-            {error}
-          </div>
-        ) : null}
-
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 18, marginTop: 28 }}>
           {[
             ["Total Dolls", metrics.total],
-            ["Live Worlds", metrics.live],
+            ["In Commerce", metrics.commerce],
             ["Available", metrics.available],
             ["Sold", metrics.sold],
           ].map(([label, value]) => (
@@ -2616,12 +2800,12 @@ export default function Page() {
           ))}
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "360px 1fr", gap: 24, marginTop: 28 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "320px minmax(0, 1fr)", gap: 24, marginTop: 28 }}>
           <section
             style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 28, padding: 22 }}
             data-selected-readiness={selectedReadiness.overall ? "ready" : "incomplete"}
           >
-            <h2 style={{ marginTop: 0, fontSize: 24 }}>Pipeline Control</h2>
+            <h2 style={{ marginTop: 0, fontSize: 24 }}>Create &amp; Select Dolls</h2>
 
             <div style={{ marginTop: 20 }}>
               <label style={labelStyle}>Doll name or temporary label</label>
@@ -2705,21 +2889,55 @@ export default function Page() {
                   </div>
 
                   <div style={{ display: "flex", gap: 12 }}>
-                    <button onClick={generateDraft} style={secondaryButton}>Generate Draft</button>
-                    <button onClick={advanceStage} style={primaryButton}>Advance Stage</button>
+                    <button onClick={generateDraft} style={secondaryButton}>Generate Content Draft</button>
+                    <button onClick={advanceStage} style={primaryButton}>Advance Production Stage</button>
+                  </div>
+                </div>
+                <div
+                  style={{
+                    marginTop: 18,
+                    background: "#f8fafc",
+                    border: "1px solid #e2e8f0",
+                    borderRadius: 22,
+                    padding: 20,
+                    display: "grid",
+                    gap: 18,
+                  }}
+                >
+                  <div>
+                    <div style={{ ...sectionLabelStyle, marginBottom: 10 }}>Pipeline</div>
+                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                      {PRODUCTION_STAGES.map((stage) => {
+                        const isCurrent = stage.value === pipelineStageNumber;
+
+                        return (
+                          <div
+                            key={stage.value}
+                            style={{
+                              padding: "12px 14px",
+                              borderRadius: 16,
+                              border: isCurrent ? "1px solid #0f172a" : "1px solid #cbd5e1",
+                              background: isCurrent ? "#0f172a" : "#fff",
+                              color: isCurrent ? "#fff" : "#334155",
+                              minWidth: 112,
+                            }}
+                          >
+                            <div style={{ fontSize: 12, opacity: isCurrent ? 0.82 : 0.7, marginBottom: 4 }}>
+                              {stage.value}
+                            </div>
+                            <div style={{ fontWeight: 700, fontSize: 14 }}>{stage.label}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 </div>
                 <div style={statusHintBlockStyle}>
-                  <div style={sectionLabelStyle}>Status Guidance</div>
+                  <div style={sectionLabelStyle}>Next Step</div>
                   <div style={hintStackStyle}>
-                    <div style={operatorHintStyle("muted")}>
-                      The doll&apos;s status determines what actions are safe to perform.
+                    <div style={operatorHintStyle(selectedReadiness.overall ? "success" : "warn")}>
+                      {workspaceNextStepMessage}
                     </div>
-                    {lifecycleHints.map((hint) => (
-                      <div key={hint} style={operatorHintStyle("warn")}>
-                        {hint}
-                      </div>
-                    ))}
                   </div>
                 </div>
 
@@ -2757,68 +2975,67 @@ export default function Page() {
                   </div>
                 </div>
 
-                <div style={{ marginTop: 18 }}>
-                  <div style={sectionLabelStyle}>Current Department</div>
-                  <div style={operatorHintStyle("muted")}>
-                    {currentDepartment || "No department selected"}
-                  </div>
-                </div>
-
                 {currentDepartment === "Overview" ? (
                   <div style={{ marginTop: 24, display: "grid", gap: 20 }}>
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 12 }}>
-                      <div style={contentCardStyle}>
-                        <div style={sectionLabelStyle}>Production Stage</div>
-                        <div style={{ fontWeight: 700 }}>{pipelineStageNumber} - {pipelineStageLabel}</div>
-                      </div>
-
-                      <div style={contentCardStyle}>
-                        <div style={sectionLabelStyle}>Commercial Status</div>
-                        <div style={{ fontWeight: 700 }}>{formatStatusToken(effectiveCommercialStatus)}</div>
-                      </div>
-
-                      <div style={contentCardStyle}>
-                        <div style={sectionLabelStyle}>Access Status</div>
-                        <div style={{ fontWeight: 700 }}>{formatStatusToken(effectiveAccessStatus)}</div>
-                      </div>
-
-                      <div style={contentCardStyle}>
-                        <div style={sectionLabelStyle}>Readiness</div>
-                        <div style={{ fontWeight: 700 }}>{readinessStatusLabel}</div>
-                      </div>
+                    <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                      {[
+                        { label: "Commerce", value: formatStatusToken(effectiveCommercialStatus), tone: "neutral" },
+                        {
+                          label: "Access",
+                          value: formatStatusToken(effectiveAccessStatus),
+                          tone: effectiveAccessStatus === "generated" ? "success" : "warn",
+                        },
+                        {
+                          label: "Readiness",
+                          value: readinessStatusLabel,
+                          tone: selectedReadiness.overall ? "success" : "warn",
+                        },
+                      ].map((item) => (
+                        <div key={item.label} style={statusPillStyle(item.tone)}>
+                          <div style={{ fontSize: 12, letterSpacing: "0.08em", textTransform: "uppercase", opacity: 0.75, fontWeight: 700 }}>
+                            {item.label}
+                          </div>
+                          <div style={{ fontWeight: 700 }}>{item.value}</div>
+                        </div>
+                      ))}
                     </div>
 
                     <div style={contentCardStyle}>
-                      <div style={sectionLabelStyle}>Readiness Overview</div>
-                      <div style={{ display: "grid", gap: 10 }}>
-                        {readinessOverviewItems.map((item) => (
-                          <div
-                            key={item.key}
-                            style={{
-                              display: "flex",
-                              justifyContent: "space-between",
-                              alignItems: "center",
-                              gap: 12,
-                              padding: "12px 14px",
-                              border: "1px solid #e2e8f0",
-                              borderRadius: 16,
-                              background: "#f8fafc",
-                            }}
-                          >
-                            <div style={{ fontWeight: 600 }}>{item.label}</div>
+                      <div style={sectionLabelStyle}>Production Readiness</div>
+                      {productionWorkflowComplete ? (
+                        <div style={operatorHintStyle("success")}>
+                          Production is complete. This doll is ready for commerce.
+                        </div>
+                      ) : (
+                        <div style={{ display: "grid", gap: 10 }}>
+                          {overviewBlockingItems.map((item) => (
                             <div
+                              key={item.key}
                               style={{
-                                color: item.state.complete ? "#166534" : "#9a3412",
-                                fontSize: 14,
-                                textAlign: "right",
+                                display: "flex",
+                                justifyContent: "space-between",
+                                alignItems: "center",
+                                gap: 12,
+                                padding: "12px 14px",
+                                border: "1px solid #e2e8f0",
+                                borderRadius: 16,
+                                background: "#f8fafc",
                               }}
                             >
-                              {item.state.complete
-                                ? "\u2705 Complete"
-                                : `\u26A0\uFE0F ${readinessMissingLabel(item.state.missing[0])}`}
+                              <div style={{ fontWeight: 600 }}>{item.label}</div>
+                              <div style={{ color: "#9a3412", fontSize: 14, textAlign: "right" }}>
+                                {readinessMissingLabel(item.state.missing[0])}
+                              </div>
                             </div>
-                          </div>
-                        ))}
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div style={contentCardStyle}>
+                      <div style={sectionLabelStyle}>Next Recommended Action</div>
+                      <div style={operatorHintStyle(selectedReadiness.overall ? "success" : "muted")}>
+                        {overviewNextActionMessage}
                       </div>
                     </div>
                   </div>
@@ -2835,100 +3052,27 @@ export default function Page() {
                 ) : currentDepartment === "Danger Zone" ? (
                   dangerZoneDepartmentContent
                 ) : (
-                  <>
-                {activeTab === "identity" ? (
-                  characterDepartmentContent
-                ) : activeTab === "story" ? (
-                  contentDepartmentContent
-                ) : activeTab === "digital" ? (
-                  digitalDepartmentContent
-                ) : activeTab === "content" ? (
-                  contentDepartmentContent
-                ) : activeTab === "sales" ? (
-                  commerceDepartmentContent
-                ) : activeTab === "live" ? (
-                  <div style={{ marginTop: 24, display: "grid", gap: 20 }}>
-                    <div style={contentCardStyle}>
-                      <div style={sectionLabelStyle}>Launch Readiness</div>
-                      <div style={{ fontSize: 40, fontWeight: 700, marginBottom: 8 }}>
-                        {readiness.score}%
-                      </div>
-                      <div style={{ color: "#64748b", fontSize: 16 }}>
-                        This score reflects whether the doll is ready to be treated as a live release.
-                      </div>
-                    </div>
-
-                    <div style={contentCardStyle}>
-                      <div style={sectionLabelStyle}>Checklist</div>
-                      <div style={{ display: "grid", gap: 12 }}>
-                        {[
-                          ["Identity complete", readiness.checks.identity],
-                          ["Story complete", readiness.checks.story],
-                          ["Digital page ready", readiness.checks.digital],
-                          ["Content pack ready", readiness.checks.content],
-                          ["Sales info present", readiness.checks.sales],
-                        ].map(([label, done]) => (
-                          <div
-                            key={label}
-                            style={{
-                              display: "flex",
-                              justifyContent: "space-between",
-                              alignItems: "center",
-                              padding: "14px 16px",
-                              border: "1px solid #e5e7eb",
-                              borderRadius: 16,
-                              background: done ? "#ecfdf5" : "#fff7ed",
-                            }}
-                          >
-                            <div style={{ fontSize: 16 }}>{label}</div>
-                            <div style={{ fontWeight: 700, color: done ? "#166534" : "#9a3412" }}>
-                              {done ? "Ready" : "Missing"}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div style={contentCardStyle}>
-                      <div style={sectionLabelStyle}>Missing Items</div>
-                      {readiness.missing.length ? (
-                        <ul style={{ margin: 0, paddingLeft: 18, color: "#64748b", lineHeight: 1.9 }}>
-                          {readiness.missing.map((item) => (
-                            <li key={item}>{item}</li>
-                          ))}
-                        </ul>
-                      ) : (
-                        <div style={{ color: "#166534", fontWeight: 600 }}>
-                          Everything is ready.
-                        </div>
-                      )}
-                    </div>
-
-                    <div style={contentCardStyle}>
-                      <div style={sectionLabelStyle}>Release Action</div>
-                      <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-                        <button onClick={markAsLive} style={primaryButton}>
-                          Mark as Live
-                        </button>
-
-                        {publicUrl ? (
-                          <button onClick={() => window.open(publicUrl, "_blank")} style={secondaryButton}>
-                            Open Public Page
-                          </button>
-                        ) : null}
-                      </div>
-                    </div>
-                  </div>
-                ) : null}
-
-                {dangerZoneDepartmentContent}
-                  </>
+                  null
                 )}
               </>
             ) : (
               <div style={{ color: "#64748b" }}>Create your first doll to begin.</div>
             )}
           </section>
+        </div>
+
+        <div style={{ marginTop: 24, display: "grid", gap: 16 }}>
+          {notice ? (
+            <div style={{ background: "#dff5e7", border: "1px solid #9fe0b4", color: "#166534", padding: 16, borderRadius: 16 }}>
+              {notice}
+            </div>
+          ) : null}
+
+          {error ? (
+            <div style={{ background: "#fee2e2", border: "1px solid #fca5a5", color: "#991b1b", padding: 16, borderRadius: 16 }}>
+              {error}
+            </div>
+          ) : null}
         </div>
       </div>
     </main>
@@ -3248,6 +3392,18 @@ const hintStackStyle = {
 };
 
 function operatorHintStyle(tone = "muted") {
+  if (tone === "success") {
+    return {
+      background: "#ecfdf5",
+      border: "1px solid #86efac",
+      borderRadius: 14,
+      padding: "10px 12px",
+      color: "#166534",
+      fontSize: 14,
+      lineHeight: 1.6,
+    };
+  }
+
   if (tone === "warn") {
     return {
       background: "#fff7ed",
@@ -3268,6 +3424,45 @@ function operatorHintStyle(tone = "muted") {
     color: "#475569",
     fontSize: 14,
     lineHeight: 1.6,
+  };
+}
+
+function statusPillStyle(tone = "neutral") {
+  if (tone === "success") {
+    return {
+      display: "grid",
+      gap: 6,
+      padding: "12px 14px",
+      borderRadius: 16,
+      border: "1px solid #86efac",
+      background: "#ecfdf5",
+      color: "#166534",
+      minWidth: 160,
+    };
+  }
+
+  if (tone === "warn") {
+    return {
+      display: "grid",
+      gap: 6,
+      padding: "12px 14px",
+      borderRadius: 16,
+      border: "1px solid #fdba74",
+      background: "#fff7ed",
+      color: "#9a3412",
+      minWidth: 160,
+    };
+  }
+
+  return {
+    display: "grid",
+    gap: 6,
+    padding: "12px 14px",
+    borderRadius: 16,
+    border: "1px solid #cbd5e1",
+    background: "#f8fafc",
+    color: "#334155",
+    minWidth: 160,
   };
 }
 
