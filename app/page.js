@@ -651,7 +651,8 @@ export default function Page() {
     "Complete Production, Character, and Content before generating a QR code.";
   const saleTransitionReadinessMessage =
     "Complete all readiness sections before confirming or progressing this order.";
-  const workspaceNextStepMessage = (() => {
+  const currentDepartment = selected ? activeDepartment || "Overview" : "";
+  const globalWorkspaceNextStepMessage = (() => {
     if (!selectedReadiness.production.complete) {
       if (selectedReadiness.production.missing.includes("image_url")) {
         return "Next step: add the doll image in Production.";
@@ -694,6 +695,93 @@ export default function Page() {
 
     return "All production stages are complete.";
   })();
+  const activeDepartmentNextStepMessage = (() => {
+    if (currentDepartment === "Production" && !selectedReadiness.production.complete) {
+      if (selectedReadiness.production.missing.includes("image_url")) {
+        return "Add a doll image to complete production.";
+      }
+
+      if (selectedReadiness.production.missing.includes("color_palette")) {
+        return "Add a color palette.";
+      }
+
+      if (selectedReadiness.production.missing.includes("notable_features")) {
+        return "Describe the key physical features.";
+      }
+
+      return "Complete the remaining production details.";
+    }
+
+    if (currentDepartment === "Character" && !selectedReadiness.character.complete) {
+      if (selectedReadiness.character.missing.includes("name")) {
+        return "Add the character name.";
+      }
+
+      if (
+        selectedReadiness.character.missing.includes("theme_name") ||
+        selectedReadiness.character.missing.includes("universe_or_theme")
+      ) {
+        return "Assign a theme.";
+      }
+
+      if (selectedReadiness.character.missing.includes("personality_traits")) {
+        return "Add personality traits.";
+      }
+
+      if (selectedReadiness.character.missing.includes("emotional_hook")) {
+        return "Add the emotional hook.";
+      }
+
+      if (selectedReadiness.character.missing.includes("expression_feel")) {
+        return "Add the expression feel.";
+      }
+
+      if (selectedReadiness.character.missing.includes("character_world")) {
+        return "Add the character world.";
+      }
+
+      return "Complete the remaining character details.";
+    }
+
+    if (currentDepartment === "Content" && !selectedReadiness.content.complete) {
+      if (selectedReadiness.content.missing.includes("story_content")) {
+        return "Generate or write the story.";
+      }
+
+      if (selectedReadiness.content.missing.includes("content_pack")) {
+        return "Complete the content pack.";
+      }
+
+      if (selectedReadiness.content.missing.includes("social_content")) {
+        return "Complete social content.";
+      }
+
+      return "Finish the remaining content.";
+    }
+
+    if (currentDepartment === "Digital" && !selectedReadiness.digital.complete) {
+      if (selectedReadiness.digital.missing.includes("qr_code_url") && qrReady) {
+        return "Generate the QR code in Digital.";
+      }
+
+      if (selectedReadiness.digital.missing.includes("slug")) {
+        return "Add a public slug.";
+      }
+
+      if (selectedReadiness.digital.missing.includes("public_link")) {
+        return "Prepare the digital identity.";
+      }
+
+      return "Finish the digital setup.";
+    }
+
+    if (currentDepartment === "Commerce" && !selectedReadiness.commercial.complete) {
+      return "Set the order status to continue commerce.";
+    }
+
+    return "";
+  })();
+  const workspaceNextStepMessage = activeDepartmentNextStepMessage || globalWorkspaceNextStepMessage;
   const overviewNextActionMessage = (() => {
     if (!selectedReadiness.production.complete) {
       if (selectedReadiness.production.missing.includes("image_url")) {
@@ -737,7 +825,6 @@ export default function Page() {
 
     return "This doll is fully configured.";
   })();
-  const currentDepartment = selected ? activeDepartment || "Overview" : "";
   const currentStorySignature = sectionStateSignature(buildStorySectionSnapshot(story));
   const currentContentPackSignature = sectionStateSignature(buildContentPackSectionSnapshot(contentPack));
   const currentSocialSignature = sectionStateSignature(buildSocialSectionSnapshot(identity));
@@ -2021,38 +2108,13 @@ export default function Page() {
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-        <div style={contentCardStyle}>
-          <label style={labelStyle}>Color Palette</label>
-          <input
-            value={identity.color_palette}
-            onChange={(e) => setIdentity({ ...identity, color_palette: e.target.value })}
-            style={inputStyle}
-          />
-        </div>
-
-        <div style={contentCardStyle}>
-          <label style={labelStyle}>Notable Features</label>
-          <textarea
-            value={identity.notable_features}
-            onChange={(e) => setIdentity({ ...identity, notable_features: e.target.value })}
-            style={{ ...inputStyle, minHeight: 120, resize: "vertical" }}
-          />
-        </div>
-      </div>
-
-      {!selectedReadiness.production.complete ? (
-        <div style={hintStackStyle}>
-          {selectedReadiness.production.missing.map((item) => (
-            <div key={item} style={operatorHintStyle("warn")}>
-              {readinessMissingLabel(item)}
-            </div>
-          ))}
-        </div>
-      ) : null}
-
       <div style={digitalCardStyle}>
-        <div style={sectionLabelStyle}>Visual Block</div>
+        <div style={sectionLabelStyle}>Physical Doll</div>
+        <div style={{ color: "#64748b", fontSize: 15, marginTop: -2, marginBottom: 14 }}>
+          Define the physical appearance of the doll.
+        </div>
+        <div style={{ ...sectionLabelStyle, marginBottom: 12 }}>Visual Block</div>
+
         <div style={visualPlaceholderStyle}>
           <div style={{ width: "100%" }}>
             {identity.image_url ? (
@@ -2063,7 +2125,7 @@ export default function Page() {
                   width: "100%",
                   borderRadius: 16,
                   objectFit: "cover",
-                  maxHeight: 260,
+                  maxHeight: 360,
                 }}
               />
             ) : (
@@ -2076,10 +2138,8 @@ export default function Page() {
             )}
 
             {!hasImage ? (
-              <div style={{ ...hintStackStyle, marginTop: 12 }}>
-                <div style={operatorHintStyle("muted")}>
-                  Add a doll image to complete the production record.
-                </div>
+              <div style={inlineValidationHintStyle}>
+                Add a doll image to complete production.
               </div>
             ) : null}
 
@@ -2097,7 +2157,41 @@ export default function Page() {
         </div>
       </div>
 
-      <div>
+      <div style={{ display: "grid", gap: 16 }}>
+        <div style={contentCardStyle}>
+          <label style={labelStyle}>Color Palette</label>
+          <input
+            value={identity.color_palette}
+            onChange={(e) => setIdentity({ ...identity, color_palette: e.target.value })}
+            style={inputStyle}
+          />
+          {!identity.color_palette?.trim() ? (
+            <div style={inlineValidationHintStyle}>
+              Add a color palette.
+            </div>
+          ) : null}
+        </div>
+
+        <div style={contentCardStyle}>
+          <label style={labelStyle}>Notable Features</label>
+          <textarea
+            value={identity.notable_features}
+            onChange={(e) => {
+              autoResizeTextarea(e.currentTarget);
+              setIdentity({ ...identity, notable_features: e.target.value });
+            }}
+            ref={(node) => autoResizeTextarea(node)}
+            style={{ ...inputStyle, minHeight: 160, resize: "none", overflow: "hidden" }}
+          />
+          {!identity.notable_features?.trim() ? (
+            <div style={inlineValidationHintStyle}>
+              Describe the key physical features.
+            </div>
+          ) : null}
+        </div>
+      </div>
+
+      <div style={{ paddingTop: 4 }}>
         <button onClick={saveIdentity} style={primaryButton}>Save Production Details</button>
       </div>
     </div>
@@ -2470,7 +2564,7 @@ export default function Page() {
 
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 14 }}>
             <button onClick={activateDigitalLayer} style={primaryButton}>
-              Activate Digital Layer
+              Prepare Digital Identity
             </button>
 
             <button
@@ -2800,6 +2894,20 @@ export default function Page() {
           ))}
         </div>
 
+        <div style={{ marginTop: 24, display: "grid", gap: 16 }}>
+          {notice ? (
+            <div style={{ background: "#dff5e7", border: "1px solid #9fe0b4", color: "#166534", padding: 16, borderRadius: 16 }}>
+              {notice}
+            </div>
+          ) : null}
+
+          {error ? (
+            <div style={{ background: "#fee2e2", border: "1px solid #fca5a5", color: "#991b1b", padding: 16, borderRadius: 16 }}>
+              {error}
+            </div>
+          ) : null}
+        </div>
+
         <div style={{ display: "grid", gridTemplateColumns: "320px minmax(0, 1fr)", gap: 24, marginTop: 28 }}>
           <section
             style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 28, padding: 22 }}
@@ -2933,11 +3041,9 @@ export default function Page() {
                   </div>
                 </div>
                 <div style={statusHintBlockStyle}>
-                  <div style={sectionLabelStyle}>Next Step</div>
-                  <div style={hintStackStyle}>
-                    <div style={operatorHintStyle(selectedReadiness.overall ? "success" : "warn")}>
-                      {workspaceNextStepMessage}
-                    </div>
+                  <div style={{ ...sectionLabelStyle, marginBottom: 8 }}>Next Step</div>
+                  <div style={workspaceNextStepStyle(selectedReadiness.overall)}>
+                    {workspaceNextStepMessage}
                   </div>
                 </div>
 
@@ -3004,7 +3110,9 @@ export default function Page() {
                       <div style={sectionLabelStyle}>Production Readiness</div>
                       {productionWorkflowComplete ? (
                         <div style={operatorHintStyle("success")}>
-                          Production is complete. This doll is ready for commerce.
+                          {selectedReadiness.overall
+                            ? "Production is complete."
+                            : "Production is complete. Complete all readiness sections before progressing the order."}
                         </div>
                       ) : (
                         <div style={{ display: "grid", gap: 10 }}>
@@ -3061,19 +3169,6 @@ export default function Page() {
           </section>
         </div>
 
-        <div style={{ marginTop: 24, display: "grid", gap: 16 }}>
-          {notice ? (
-            <div style={{ background: "#dff5e7", border: "1px solid #9fe0b4", color: "#166534", padding: 16, borderRadius: 16 }}>
-              {notice}
-            </div>
-          ) : null}
-
-          {error ? (
-            <div style={{ background: "#fee2e2", border: "1px solid #fca5a5", color: "#991b1b", padding: 16, borderRadius: 16 }}>
-              {error}
-            </div>
-          ) : null}
-        </div>
       </div>
     </main>
   );
@@ -3147,6 +3242,12 @@ function sectionSaveButtonStyle(isDirty, isSaving, hasSavedSnapshot) {
     ...primaryButton,
     background: "#166534",
   };
+}
+
+function autoResizeTextarea(element) {
+  if (!element) return;
+  element.style.height = "auto";
+  element.style.height = `${element.scrollHeight}px`;
 }
 
 const dangerButton = {
@@ -3384,12 +3485,35 @@ const archivedBannerStyle = {
 
 const statusHintBlockStyle = {
   marginTop: 16,
+  background: "#f8fafc",
+  border: "1px solid #e2e8f0",
+  borderRadius: 18,
+  padding: 14,
 };
 
 const hintStackStyle = {
   display: "grid",
   gap: 10,
 };
+
+const inlineValidationHintStyle = {
+  marginTop: 8,
+  fontSize: 13,
+  lineHeight: 1.5,
+  color: "#64748b",
+};
+
+function workspaceNextStepStyle(isComplete = false) {
+  return {
+    background: "#ffffff",
+    border: `1px solid ${isComplete ? "#d1fae5" : "#e2e8f0"}`,
+    borderRadius: 14,
+    padding: "12px 14px",
+    color: isComplete ? "#334155" : "#475569",
+    fontSize: 14,
+    lineHeight: 1.6,
+  };
+}
 
 function operatorHintStyle(tone = "muted") {
   if (tone === "success") {
