@@ -5,6 +5,19 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { toPng } from "html-to-image";
 import QRCode from "qrcode";
 import { supabase } from "../lib/supabase";
+import {
+  PIPELINE_STAGE_LABELS,
+  PIPELINE_STAGE_ORDER,
+  completePipelineStageTransition,
+  createDefaultPipelineState,
+  createPipelineTimestamp,
+  getDownstreamPipelineStages,
+  getCurrentOpenPipelineStage,
+  getNextPipelineStage,
+  isSamePipelineState,
+  reopenPipelineStageTransition,
+  withNormalizedPipelineState,
+} from "../lib/pipelineState";
 
 const DEFAULT_THEMES = [
   "Unassigned",
@@ -13,14 +26,19 @@ const DEFAULT_THEMES = [
   "Cozy World",
 ];
 const STORY_TONES = ["Gentle", "Playful", "Magical"];
-const STATUSES = ["new", "identity", "story", "digital", "content", "sales"];
-const PRODUCTION_STAGES = [
-  { value: 1, label: "Registered" },
-  { value: 2, label: "Character" },
-  { value: 3, label: "Content" },
-  { value: 4, label: "Gateway" },
-  { value: 5, label: "Ready" },
-];
+const COMMERCE_STATUSES = Object.freeze(["draft", "ready_for_sale", "unavailable"]);
+const PRODUCTION_STAGES = PIPELINE_STAGE_ORDER.map((stage, index) => ({
+  key: stage,
+  value: index + 1,
+  label: PIPELINE_STAGE_LABELS[stage],
+}));
+const PIPELINE_STAGE_READINESS_KEYS = Object.freeze({
+  registered: "production",
+  character: "character",
+  content: "content",
+  gateway: "gateway",
+  ready: "overall",
+});
 const DEPARTMENTS = [
   "Overview",
   "Production",
@@ -30,6 +48,7 @@ const DEPARTMENTS = [
   "Commerce",
   "Danger Zone",
 ];
+const showLegacyDepartmentsNavigation = false;
 const ADMIN_AUTH_STORAGE_KEY = "doll_admin_authenticated";
 const ADMIN_PASSWORD =
   process.env.NEXT_PUBLIC_ADMIN_PASSWORD?.trim() ||
@@ -39,6 +58,11 @@ const ADMIN_PASSWORD =
 function normalizeLifecycleStatus(value) {
   const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
   return normalized === "live" ? "sales" : normalized;
+}
+
+function normalizeCommerceStatus(value) {
+  const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
+  return COMMERCE_STATUSES.includes(normalized) ? normalized : "draft";
 }
 
 function slugify(value) {
@@ -65,6 +89,130 @@ function formatStatusToken(value) {
     .join(" ");
 }
 
+function isMissingPipelineStateColumnError(error) {
+  const errorText = [error?.message, error?.details, error?.hint, error?.code]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  return (
+    errorText.includes("pipeline_state") &&
+    (errorText.includes("column") ||
+      errorText.includes("schema cache") ||
+      errorText.includes("could not find"))
+  );
+}
+
+function pipelineStageStateLabel(status) {
+  if (status === "completed") return "Completed";
+  if (status === "open") return "In Progress";
+  return "Locked";
+}
+
+function getPipelineStageReadinessKey(stage) {
+  return PIPELINE_STAGE_READINESS_KEYS[stage] || null;
+}
+
+function getPipelineStageReadinessState(stage, readinessState, derivedReadiness = {}) {
+  const readinessKey = getPipelineStageReadinessKey(stage);
+  if (!readinessKey || !readinessState) return null;
+  if (derivedReadiness[readinessKey]) {
+    return derivedReadiness[readinessKey];
+  }
+  if (readinessKey === "overall") {
+    return {
+      complete: Boolean(readinessState.overall),
+      missing: [],
+    };
+  }
+  return readinessState[readinessKey] || null;
+}
+
+function buildPipelineStageBlockedMessage(stage, readinessState) {
+  const stageLabel = PIPELINE_STAGE_LABELS[stage] || formatStatusToken(stage);
+  const readinessKey = getPipelineStageReadinessKey(stage);
+  const firstMissing = readinessState?.missing?.[0];
+
+  if (readinessKey === "gateway") {
+    const gatewayBlockingLabel =
+      firstMissing === "commerce_status" || firstMissing === "commercial_status"
+        ? "Product Commerce"
+        : "Digital";
+
+    return firstMissing
+      ? `Complete ${gatewayBlockingLabel} readiness before completing ${stageLabel}. ${readinessMissingLabel(firstMissing)}.`
+      : `Complete ${gatewayBlockingLabel} readiness before completing ${stageLabel}.`;
+  }
+
+  if (readinessKey === "overall") {
+    return `Complete all readiness sections before completing ${stageLabel}.`;
+  }
+  const readinessLabel = readinessKey ? formatStatusToken(readinessKey) : "Required";
+
+  return firstMissing
+    ? `Complete ${readinessLabel} readiness before completing ${stageLabel}. ${readinessMissingLabel(firstMissing)}.`
+    : `Complete ${readinessLabel} readiness before completing ${stageLabel}.`;
+}
+
+function getPipelineNormalizationTimestamp(record) {
+  if (!record || typeof record !== "object") {
+    return undefined;
+  }
+
+  if (typeof record.created_at === "string" && record.created_at.trim()) {
+    return record.created_at;
+  }
+
+  if (typeof record.updated_at === "string" && record.updated_at.trim()) {
+    return record.updated_at;
+  }
+
+  return undefined;
+}
+
+function syncDollRecordPipelineState(record, pipelineState, options = {}) {
+  if (!record || typeof record !== "object") {
+    return record;
+  }
+
+  const timestamp = getPipelineNormalizationTimestamp(record);
+  const normalizedPipelineState = withNormalizedPipelineState(
+    { pipelineState },
+    { timestamp }
+  ).pipelineState;
+  const nextRecord = {
+    ...record,
+    pipelineState: normalizedPipelineState,
+  };
+
+  if (options.persisted || Object.prototype.hasOwnProperty.call(record, "pipeline_state")) {
+    nextRecord.pipeline_state = normalizedPipelineState;
+  }
+
+  return withNormalizedPipelineState(nextRecord, { timestamp });
+}
+
+function isStageEditable(stageStatus) {
+  return stageStatus === "open";
+}
+
+function disabledFormControlStyle(baseStyle) {
+  return {
+    ...baseStyle,
+    background: "#f8fafc",
+    color: "#64748b",
+    cursor: "not-allowed",
+  };
+}
+
+function disabledActionStyle(baseStyle) {
+  return {
+    ...baseStyle,
+    opacity: 0.6,
+    cursor: "not-allowed",
+  };
+}
+
 function readinessMissingLabel(key) {
   const labels = {
     internal_id: "Missing record ID",
@@ -84,15 +232,39 @@ function readinessMissingLabel(key) {
     slug: "Missing slug",
     public_link: "Missing public link",
     qr_code_url: "QR not generated",
-    commercial_status: "Missing sale status",
+    commercial_status: "Product commerce status is not ready for sale",
+    commerce_status: "Product commerce status is not ready for sale",
   };
 
   return labels[key] || `Missing ${formatStatusToken(key)}`;
 }
 
-function progressFromStatus(status) {
-  const idx = STATUSES.indexOf(normalizeLifecycleStatus(status) || "new");
-  return idx >= 0 ? Math.round(((idx + 1) / STATUSES.length) * 100) : 0;
+function getPipelineProgressPercent(record) {
+  if (!record || typeof record !== "object") {
+    return 0;
+  }
+
+  const normalizedRecord = withNormalizedPipelineState(record, {
+    timestamp: getPipelineNormalizationTimestamp(record),
+  });
+  const normalizedPipelineState = normalizedRecord?.pipelineState;
+
+  if (!normalizedPipelineState) {
+    return 0;
+  }
+
+  const completedStages = PIPELINE_STAGE_ORDER.filter(
+    (stage) => normalizedPipelineState[stage]?.status === "completed"
+  ).length;
+  const hasOpenStage = PIPELINE_STAGE_ORDER.some(
+    (stage) => normalizedPipelineState[stage]?.status === "open"
+  );
+  const progressUnits = Math.min(
+    PIPELINE_STAGE_ORDER.length,
+    completedStages + (hasOpenStage ? 0.5 : 0)
+  );
+
+  return Math.round((progressUnits / PIPELINE_STAGE_ORDER.length) * 100);
 }
 
 function cleanList(value) {
@@ -389,6 +561,12 @@ export default function Page() {
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [activeDepartment, setActiveDepartment] = useState("");
+  const [activeStageView, setActiveStageView] = useState("");
+  const [commerceStatus, setCommerceStatus] = useState("draft");
+  const [commerceSaving, setCommerceSaving] = useState(false);
+  const [pipelineStageCompleting, setPipelineStageCompleting] = useState("");
+  const [pipelineStageReopening, setPipelineStageReopening] = useState("");
+  const [stageActionWarning, setStageActionWarning] = useState(null);
 
   const selected = useMemo(
     () => dolls.find((d) => d.id === selectedId) || dolls[0] || null,
@@ -428,37 +606,67 @@ export default function Page() {
         ? 5
         : 1;
   const legacySalesStatus = (selected?.sales_status || "").toLowerCase();
+  const effectiveSalesStatus = legacySalesStatus || "not_sold";
   const legacyAvailabilityStatus = (selected?.availability_status || "").toLowerCase();
-  const effectiveCommercialStatus =
-    typeof selected?.commercial_status === "string" && selected.commercial_status.trim()
-      ? selected.commercial_status.trim().toLowerCase()
-      : legacySalesStatus === "sold"
-        ? "sold"
-        : legacySalesStatus === "reserved"
-          ? "reserved"
-          : legacyAvailabilityStatus === "assigned"
-            ? "sold"
-            : "not_for_sale";
+  const effectiveCommerceStatus = normalizeCommerceStatus(selected?.commerce_status);
   const effectiveAccessStatus =
     typeof selected?.access_status === "string" && selected.access_status.trim()
       ? selected.access_status.trim().toLowerCase()
       : selected?.qr_code_url
         ? "generated"
         : "not_generated";
-  const effectiveLifecycleStatus =
-    typeof selected?.status === "string" && selected.status.trim()
-      ? normalizeLifecycleStatus(selected.status)
-      : effectiveProductionStage >= 5
-        ? "sales"
-        : effectiveProductionStage >= 4
-          ? "digital"
-          : "new";
   const pipelineStageNumber = selected
     ? Math.min(Math.max(Math.round(effectiveProductionStage || 1), 1), PRODUCTION_STAGES.length)
     : 0;
   const pipelineStageLabel =
     PRODUCTION_STAGES.find((stage) => stage.value === pipelineStageNumber)?.label || "Not set";
-  const qrSalesStatus = effectiveCommercialStatus;
+  const selectedPipelineState = selected
+    ? withNormalizedPipelineState(selected, {
+        timestamp: getPipelineNormalizationTimestamp(selected),
+      }).pipelineState
+    : null;
+  const selectedPipelineProgressPercent = selected ? getPipelineProgressPercent(selected) : 0;
+  const currentOpenPipelineStage = selectedPipelineState
+    ? getCurrentOpenPipelineStage(selectedPipelineState)
+    : null;
+  const pipelineStageActionBusy = Boolean(pipelineStageCompleting || pipelineStageReopening);
+  const currentPipelineStageRecord =
+    PRODUCTION_STAGES.find((stage) => stage.value === pipelineStageNumber) || null;
+  const currentProductionPipelineState =
+    currentPipelineStageRecord?.key && selectedPipelineState?.[currentPipelineStageRecord.key]?.status
+      ? selectedPipelineState[currentPipelineStageRecord.key].status
+      : "locked";
+  const currentWorkflowStageKey =
+    currentOpenPipelineStage ||
+    [...PIPELINE_STAGE_ORDER]
+      .reverse()
+      .find((stage) => selectedPipelineState?.[stage]?.status === "completed") ||
+    "registered";
+  const currentWorkflowStageLabel =
+    PIPELINE_STAGE_LABELS[currentWorkflowStageKey] || pipelineStageLabel;
+  const currentWorkflowStageStatus =
+    selectedPipelineState?.[currentWorkflowStageKey]?.status || currentProductionPipelineState;
+  const dollIdentityThemeRaw =
+    identity.theme_name?.trim() || selected?.theme_name?.trim() || "";
+  const dollIdentityTheme =
+    dollIdentityThemeRaw && dollIdentityThemeRaw.toLowerCase() !== "unassigned"
+      ? dollIdentityThemeRaw
+      : "";
+  const dollIdentityWorld = identity.character_world?.trim() || selected?.character_world?.trim() || "";
+  const dollIdentityCollection = dollIdentityTheme || dollIdentityWorld || "Unassigned";
+  const dollIdentityArtist = selected?.artist_name?.trim() || "";
+  const dollIdentityArtistDisplay = dollIdentityArtist || "Unassigned";
+  const dollIdentityArtistIsEmpty = !dollIdentityArtist;
+  const dollIdentityWorkflowState = pipelineStageStateLabel(currentWorkflowStageStatus);
+  const productionStageStatus = selectedPipelineState?.registered?.status || "locked";
+  const characterStageStatus = selectedPipelineState?.character?.status || "locked";
+  const contentStageStatus = selectedPipelineState?.content?.status || "locked";
+  const gatewayStageStatus = selectedPipelineState?.gateway?.status || "locked";
+  const isProductionEditable = isStageEditable(productionStageStatus);
+  const isCharacterEditable = isStageEditable(characterStageStatus);
+  const isContentEditable = isStageEditable(contentStageStatus);
+  const isGatewayEditable = isStageEditable(gatewayStageStatus);
+  const qrSalesStatus = effectiveSalesStatus;
   const qrAvailabilityStatus = legacyAvailabilityStatus;
   const qrIsSensitive =
     qrSalesStatus === "reserved" ||
@@ -561,8 +769,8 @@ export default function Page() {
     if (!selected?.qr_code_url?.trim()) digitalMissing.push("qr_code_url");
 
     const commercialMissing = [];
-    if (!["for_sale", "reserved", "sold"].includes(effectiveCommercialStatus)) {
-      commercialMissing.push("commercial_status");
+    if (effectiveCommerceStatus !== "ready_for_sale") {
+      commercialMissing.push("commerce_status");
     }
 
     const readiness = {
@@ -620,14 +828,24 @@ export default function Page() {
     selectedSlug,
     publicPath,
     publicUrl,
-    effectiveCommercialStatus,
+    effectiveCommerceStatus,
   ]);
+  // Gateway is the activation layer: digital identity plus commerce readiness.
+  const gatewayReady =
+    Boolean(selectedReadiness?.digital?.complete) &&
+    Boolean(selectedReadiness?.commercial?.complete);
+  const gatewayReadinessState = {
+    complete: gatewayReady,
+    missing: selectedReadiness?.digital?.complete
+      ? selectedReadiness?.commercial?.missing || []
+      : selectedReadiness?.digital?.missing || [],
+  };
   const readinessOverviewItems = [
     { key: "production", label: "Production", state: selectedReadiness.production },
     { key: "character", label: "Character", state: selectedReadiness.character },
     { key: "content", label: "Content", state: selectedReadiness.content },
     { key: "digital", label: "Digital", state: selectedReadiness.digital },
-    { key: "commercial", label: "Commercial", state: selectedReadiness.commercial },
+    { key: "commercial", label: "Product Commerce", state: selectedReadiness.commercial },
   ];
   const readinessCompleteCount = readinessOverviewItems.filter((item) => item.state.complete).length;
   const readinessStatusLabel = selectedReadiness.overall
@@ -652,6 +870,9 @@ export default function Page() {
   const saleTransitionReadinessMessage =
     "Complete all readiness sections before confirming or progressing this order.";
   const currentDepartment = selected ? activeDepartment || "Overview" : "";
+  const currentStageView = selected
+    ? activeStageView || "overview"
+    : "";
   const globalWorkspaceNextStepMessage = (() => {
     if (!selectedReadiness.production.complete) {
       if (selectedReadiness.production.missing.includes("image_url")) {
@@ -690,13 +911,13 @@ export default function Page() {
     }
 
     if (!selectedReadiness.commercial.complete) {
-      return "Next step: complete Commerce to progress this doll into order flow.";
+      return "Next step: set Product Commerce Status to Ready for Sale.";
     }
 
     return "All production stages are complete.";
   })();
-  const activeDepartmentNextStepMessage = (() => {
-    if (currentDepartment === "Production" && !selectedReadiness.production.complete) {
+  const activeStageNextStepMessage = (() => {
+    if (currentStageView === "registered" && !selectedReadiness.production.complete) {
       if (selectedReadiness.production.missing.includes("image_url")) {
         return "Add a doll image to complete production.";
       }
@@ -712,7 +933,7 @@ export default function Page() {
       return "Complete the remaining production details.";
     }
 
-    if (currentDepartment === "Character" && !selectedReadiness.character.complete) {
+    if (currentStageView === "character" && !selectedReadiness.character.complete) {
       if (selectedReadiness.character.missing.includes("name")) {
         return "Add the character name.";
       }
@@ -743,7 +964,7 @@ export default function Page() {
       return "Complete the remaining character details.";
     }
 
-    if (currentDepartment === "Content" && !selectedReadiness.content.complete) {
+    if (currentStageView === "content" && !selectedReadiness.content.complete) {
       if (selectedReadiness.content.missing.includes("story_content")) {
         return "Generate or write the story.";
       }
@@ -759,7 +980,7 @@ export default function Page() {
       return "Finish the remaining content.";
     }
 
-    if (currentDepartment === "Digital" && !selectedReadiness.digital.complete) {
+    if (currentStageView === "gateway") {
       if (selectedReadiness.digital.missing.includes("qr_code_url") && qrReady) {
         return "Generate the QR code in Digital.";
       }
@@ -772,59 +993,89 @@ export default function Page() {
         return "Prepare the digital identity.";
       }
 
+      if (!selectedReadiness.commercial.complete) {
+        return "Set Product Commerce Status to Ready for Sale.";
+      }
+
       return "Finish the digital setup.";
     }
 
-    if (currentDepartment === "Commerce" && !selectedReadiness.commercial.complete) {
-      return "Set the order status to continue commerce.";
+    if (currentStageView === "ready") {
+      return selectedReadiness.overall
+        ? "This doll is fully configured."
+        : globalWorkspaceNextStepMessage;
     }
 
     return "";
   })();
-  const workspaceNextStepMessage = activeDepartmentNextStepMessage || globalWorkspaceNextStepMessage;
-  const overviewNextActionMessage = (() => {
-    if (!selectedReadiness.production.complete) {
-      if (selectedReadiness.production.missing.includes("image_url")) {
-        return "Go to Production and add the doll image.";
-      }
-
-      return "Go to Production and complete the missing details.";
+  const workspaceNextStepMessage = activeStageNextStepMessage || globalWorkspaceNextStepMessage;
+  const currentStageViewStatus =
+    currentStageView && PIPELINE_STAGE_ORDER.includes(currentStageView)
+      ? selectedPipelineState?.[currentStageView]?.status || "locked"
+      : null;
+  const workflowGuidance = (() => {
+    if (currentStageView === "overview") {
+      return {
+        tone: selectedReadiness.overall ? "success" : "muted",
+        message: selectedReadiness.overall
+          ? "All production stages are complete."
+          : globalWorkspaceNextStepMessage,
+      };
     }
 
-    if (!selectedReadiness.character.complete) {
-      return "Go to Character and complete the identity details.";
+    if (currentStageViewStatus === "completed") {
+      return {
+        tone: currentStageView === "ready" && selectedReadiness.overall ? "success" : "muted",
+        message:
+          currentStageView === "ready" && selectedReadiness.overall
+            ? "All production stages are complete."
+            : currentStageView === "gateway"
+              ? "This stage is completed - reopen to edit. CRM order tracking remains editable."
+              : "This stage is completed - reopen to edit.",
+      };
     }
 
-    if (!selectedReadiness.content.complete) {
-      if (selectedReadiness.content.missing.includes("story_content")) {
-        return "Go to Content and complete the story.";
-      }
-
-      if (selectedReadiness.content.missing.includes("content_pack")) {
-        return "Go to Content and complete the content pack.";
-      }
-
-      if (selectedReadiness.content.missing.includes("social_content")) {
-        return "Go to Content and complete social content.";
-      }
-
-      return "Go to Content and finish the remaining content.";
+    if (currentStageViewStatus === "locked") {
+      return {
+        tone: "warn",
+        message:
+          currentStageView === "gateway"
+            ? "This stage is locked - complete the previous stage to unlock it. CRM order tracking remains editable."
+            : "This stage is locked - complete the previous stage to unlock it.",
+      };
     }
 
-    if (!selectedReadiness.digital.complete) {
-      if (selectedReadiness.digital.missing.includes("qr_code_url") && qrReady) {
-        return "Go to Digital and generate the QR code.";
-      }
-
-      return "Go to Digital and finish the public link setup.";
+    if (currentStageView === "ready") {
+      return {
+        tone: selectedReadiness.overall ? "success" : "muted",
+        message: selectedReadiness.overall
+          ? "All production stages are complete."
+          : globalWorkspaceNextStepMessage,
+      };
     }
 
-    if (!selectedReadiness.commercial.complete) {
-      return "Go to Commerce and set the order status.";
-    }
-
-    return "This doll is fully configured.";
+    return {
+      tone: "muted",
+      message: workspaceNextStepMessage,
+    };
   })();
+  const workflowFeedback = error
+    ? {
+        tone: "error",
+        message: error,
+      }
+    : notice
+      ? {
+          tone: "success",
+          message: notice,
+        }
+      : selectedIsArchived
+        ? {
+            tone: "muted",
+            message:
+              "This doll is archived. Its digital identity and related records are preserved, but it is no longer part of the active lifecycle.",
+          }
+        : null;
   const currentStorySignature = sectionStateSignature(buildStorySectionSnapshot(story));
   const currentContentPackSignature = sectionStateSignature(buildContentPackSectionSnapshot(contentPack));
   const currentSocialSignature = sectionStateSignature(buildSocialSectionSnapshot(identity));
@@ -947,10 +1198,15 @@ export default function Page() {
       return;
     }
 
-    const mapped = (data || []).map((d) => ({
-      ...d,
-      theme_name: d.theme_name || "Unassigned",
-    }));
+    const mapped = (data || []).map((d) =>
+      withNormalizedPipelineState(
+        {
+          ...d,
+          theme_name: d.theme_name || "Unassigned",
+        },
+        { timestamp: getPipelineNormalizationTimestamp(d) }
+      )
+    );
 
     setDolls(mapped);
 
@@ -966,6 +1222,7 @@ export default function Page() {
     const doll = dolls.find((d) => d.id === dollId);
 
     if (doll) {
+      setCommerceStatus(normalizeCommerceStatus(doll.commerce_status));
       const nextIdentity = {
         name: doll.name || "",
         theme_name: doll.theme_name || "Unassigned",
@@ -996,6 +1253,7 @@ export default function Page() {
 
       setQrDataUrl(doll.qr_code_url || "");
     } else {
+      setCommerceStatus("draft");
       setQrDataUrl("");
     }
 
@@ -1098,10 +1356,18 @@ export default function Page() {
     setContentPackSaving(false);
     setSocialGenerating(false);
     setSocialSaving(false);
+    setCommerceSaving(false);
+    setPipelineStageCompleting("");
+    setPipelineStageReopening("");
+    setStageActionWarning(null);
   }, [selectedId]);
 
   useEffect(() => {
     setActiveDepartment(selected ? "Overview" : "");
+  }, [selected?.id]);
+
+  useEffect(() => {
+    setActiveStageView(selected ? "overview" : "");
   }, [selected?.id]);
 
   function handleLogin(event) {
@@ -1195,7 +1461,9 @@ export default function Page() {
     const count = dolls.length + 1;
     const computedName = newDollName || `DOLL-${String(count).padStart(3, "0")}`;
 
-    const payload = {
+    const pipelineTimestamp = createPipelineTimestamp();
+    const defaultPipelineState = createDefaultPipelineState(pipelineTimestamp);
+    const basePayload = {
       internal_id: `DOLL-${String(count).padStart(3, "0")}`,
       name: computedName,
       artist_name: newArtistName || null,
@@ -1203,24 +1471,37 @@ export default function Page() {
       status: "new",
       availability_status: "available",
       sales_status: "not_sold",
+      commerce_status: "draft",
       slug: slugify(computedName),
     };
 
-    const { data, error } = await supabase
+    let insertResult = await supabase
       .from("dolls")
-      .insert(payload)
+      .insert({
+        ...basePayload,
+        pipeline_state: defaultPipelineState,
+      })
       .select()
       .single();
+
+    if (insertResult.error && isMissingPipelineStateColumnError(insertResult.error)) {
+      insertResult = await supabase.from("dolls").insert(basePayload).select().single();
+    }
+
+    const { data, error } = insertResult;
 
     if (error) {
       setError(error.message);
       return;
     }
 
-    const next = {
-      ...data,
-      theme_name: data.theme_name || "Unassigned",
-    };
+    const next = withNormalizedPipelineState(
+      {
+        ...data,
+        theme_name: data.theme_name || "Unassigned",
+      },
+      { timestamp: pipelineTimestamp }
+    );
 
     setDolls((prev) => [...prev, next]);
     setSelectedId(next.id);
@@ -1436,6 +1717,144 @@ export default function Page() {
     );
 
     setNotice(`Advanced production stage to ${nextStage.value} - ${nextStage.label}.`);
+  }
+
+  async function completePipelineStage(stage) {
+    if (!selected) return;
+    if (!supabase) {
+      setError("Supabase environment variables are missing.");
+      return;
+    }
+
+    setError("");
+    setNotice("");
+
+    const openStage = getCurrentOpenPipelineStage(selectedPipelineState);
+    if (!openStage || openStage !== stage) {
+      setError("Only the current open stage can be completed.");
+      return;
+    }
+
+    const stageReadiness = getPipelineStageReadinessState(stage, selectedReadiness, {
+      gateway: gatewayReadinessState,
+    });
+    if (!stageReadiness?.complete) {
+      setError(buildPipelineStageBlockedMessage(stage, stageReadiness));
+      return;
+    }
+
+    const nextPipelineState = completePipelineStageTransition(selectedPipelineState, stage);
+    const nextStage = getNextPipelineStage(stage);
+
+    setPipelineStageCompleting(stage);
+
+    const { error: pipelineError } = await supabase
+      .from("dolls")
+      .update({ pipeline_state: nextPipelineState })
+      .eq("id", selected.id);
+
+    if (pipelineError && !isMissingPipelineStateColumnError(pipelineError)) {
+      setError(pipelineError.message);
+      setPipelineStageCompleting("");
+      return;
+    }
+
+    const pipelineStatePersisted = !pipelineError;
+
+    setDolls((prev) =>
+      prev.map((d) => {
+        if (d.id !== selected.id) return d;
+        return syncDollRecordPipelineState(d, nextPipelineState, {
+          persisted: pipelineStatePersisted,
+        });
+      })
+    );
+
+    setNotice(
+      nextStage
+        ? `${PIPELINE_STAGE_LABELS[stage]} completed. ${PIPELINE_STAGE_LABELS[nextStage]} is now open.`
+        : `${PIPELINE_STAGE_LABELS[stage]} completed.`
+    );
+    setPipelineStageCompleting("");
+  }
+
+  async function reopenPipelineStage(stage) {
+    if (!selected) return;
+    if (!supabase) {
+      setError("Supabase environment variables are missing.");
+      return;
+    }
+
+    const nextPipelineState = reopenPipelineStageTransition(selectedPipelineState, stage);
+    if (isSamePipelineState(nextPipelineState, selectedPipelineState)) {
+      return;
+    }
+
+    setError("");
+    setNotice("");
+    setPipelineStageReopening(stage);
+
+    const { error: pipelineError } = await supabase
+      .from("dolls")
+      .update({ pipeline_state: nextPipelineState })
+      .eq("id", selected.id);
+
+    if (pipelineError && !isMissingPipelineStateColumnError(pipelineError)) {
+      setError(pipelineError.message);
+      setPipelineStageReopening("");
+      return;
+    }
+
+    const pipelineStatePersisted = !pipelineError;
+    const downstreamStage = getNextPipelineStage(stage);
+
+    setDolls((prev) =>
+      prev.map((d) => {
+        if (d.id !== selected.id) return d;
+        return syncDollRecordPipelineState(d, nextPipelineState, {
+          persisted: pipelineStatePersisted,
+        });
+      })
+    );
+
+    setNotice(
+      downstreamStage
+        ? `${PIPELINE_STAGE_LABELS[stage]} reopened. Later stages were locked.`
+        : `${PIPELINE_STAGE_LABELS[stage]} reopened.`
+    );
+    setPipelineStageReopening("");
+  }
+
+  function requestReopenPipelineStage(stage) {
+    if (!selected || pipelineStageActionBusy) return;
+
+    const nextPipelineState = reopenPipelineStageTransition(selectedPipelineState, stage);
+    if (isSamePipelineState(nextPipelineState, selectedPipelineState)) {
+      return;
+    }
+
+    const affectedStages = getDownstreamPipelineStages(stage).filter((downstreamStage) => {
+      const currentStatus = selectedPipelineState?.[downstreamStage]?.status;
+      const nextStatus = nextPipelineState?.[downstreamStage]?.status;
+      return currentStatus !== nextStatus && nextStatus === "locked";
+    });
+
+    setStageActionWarning({
+      type: "reopen",
+      stage,
+      affectedStages,
+    });
+  }
+
+  async function confirmStageActionWarning() {
+    const warning = stageActionWarning;
+    if (!warning) return;
+
+    setStageActionWarning(null);
+
+    if (warning.type === "reopen") {
+      await reopenPipelineStage(warning.stage);
+    }
   }
 
   function generateDraft() {
@@ -2023,6 +2442,40 @@ export default function Page() {
     setContentPackSaving(false);
   }
 
+  async function saveCommerceStatus() {
+    if (!selected) return;
+
+    setError("");
+    setNotice("");
+    setCommerceSaving(true);
+
+    const nextCommerceStatus = normalizeCommerceStatus(commerceStatus);
+    const { error } = await supabase
+      .from("dolls")
+      .update({ commerce_status: nextCommerceStatus })
+      .eq("id", selected.id);
+
+    if (error) {
+      setError(error.message);
+      setCommerceSaving(false);
+      return;
+    }
+
+    setDolls((prev) =>
+      prev.map((d) =>
+        d.id === selected.id
+          ? {
+              ...d,
+              commerce_status: nextCommerceStatus,
+            }
+          : d
+      )
+    );
+    setCommerceStatus(nextCommerceStatus);
+    setNotice("Product commerce status saved.");
+    setCommerceSaving(false);
+  }
+
   async function saveOrder() {
     if (!selected) return;
 
@@ -2032,14 +2485,16 @@ export default function Page() {
     const nextSalesStatus = order.order_status === "delivered" ? "sold" : "reserved";
     const saleTransitionBlocked =
       !selectedReadiness.overall &&
-      (nextSalesStatus !== effectiveCommercialStatus || selected.status !== "sales");
+      (nextSalesStatus !== effectiveSalesStatus || selected.status !== "sales");
 
     await supabase.from("orders").delete().eq("doll_id", selected.id);
 
     const { error } = await supabase.from("orders").insert({
       doll_id: selected.id,
       customer_name: order.customer_name,
+      contact_info: order.contact_info,
       order_status: order.order_status,
+      notes: order.notes,
     });
 
     if (error) {
@@ -2090,114 +2545,167 @@ export default function Page() {
     sold: dolls.filter((d) => d.sales_status === "sold").length,
   };
   const productionDepartmentContent = (
-    <div style={{ marginTop: 24, display: "grid", gap: 20 }}>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 12 }}>
-        <div style={contentCardStyle}>
-          <div style={sectionLabelStyle}>Record ID</div>
-          <div style={{ fontWeight: 700 }}>{selected?.internal_id || "Not assigned"}</div>
-        </div>
-
-        <div style={contentCardStyle}>
-          <div style={sectionLabelStyle}>Artist</div>
-          <div style={{ fontWeight: 700 }}>{selected?.artist_name || "Not set"}</div>
-        </div>
-
-        <div style={contentCardStyle}>
-          <div style={sectionLabelStyle}>Production Stage</div>
-          <div style={{ fontWeight: 700 }}>{pipelineStageNumber} - {pipelineStageLabel}</div>
-        </div>
-      </div>
-
-      <div style={digitalCardStyle}>
-        <div style={sectionLabelStyle}>Physical Doll</div>
-        <div style={{ color: "#64748b", fontSize: 15, marginTop: -2, marginBottom: 14 }}>
-          Define the physical appearance of the doll.
-        </div>
-        <div style={{ ...sectionLabelStyle, marginBottom: 12 }}>Visual Block</div>
-
-        <div style={visualPlaceholderStyle}>
-          <div style={{ width: "100%" }}>
-            {identity.image_url ? (
-              <img
-                src={identity.image_url}
-                alt="Doll"
-                style={{
-                  width: "100%",
-                  borderRadius: 16,
-                  objectFit: "cover",
-                  maxHeight: 360,
-                }}
-              />
-            ) : (
-              <div>
-                <div style={{ fontWeight: 700, marginBottom: 6 }}>No image yet</div>
-                <div style={{ fontSize: 14, color: "#64748b" }}>
-                  Upload a doll image
+    <div style={{ marginTop: 14, display: "grid", gap: 20 }}>
+      <fieldset
+        disabled={!isProductionEditable}
+        style={{
+          border: "none",
+          padding: 0,
+          margin: 0,
+          minInlineSize: 0,
+          display: "grid",
+          gap: 18,
+          opacity: isProductionEditable ? 1 : 0.84,
+        }}
+      >
+        <div className="doll-identity-card" style={dollIdentityCardStyle}>
+          <div style={dollIdentityHeaderRowStyle}>
+            <div style={dollIdentityLeadStyle}>
+              <div style={dollIdentityPrimaryStyle}>
+                <div style={dollIdentityNameStyle}>{selected?.name || "Untitled doll"}</div>
+                <div style={dollIdentitySupportingInfoStyle}>
+                  <div style={dollIdentityIdStyle}>{selected?.internal_id || "Not assigned"}</div>
+                  <div aria-hidden="true" style={dollIdentityInfoDividerStyle} />
+                  <div style={dollIdentityThemeStyle}>{dollIdentityCollection}</div>
                 </div>
               </div>
-            )}
+            </div>
+          </div>
 
-            {!hasImage ? (
-              <div style={inlineValidationHintStyle}>
-                Add a doll image to complete production.
+          <div aria-hidden="true" style={dollIdentityDividerStyle} />
+
+          <div className="doll-identity-meta-strip" style={dollIdentityMetaStripStyle}>
+            <div style={dollIdentityMetaStyle}>
+              <div style={dollIdentityMetaLabelStyle}>Artist</div>
+              <div style={dollIdentityMetaValueStyle(dollIdentityArtistIsEmpty)}>
+                {dollIdentityArtistDisplay}
               </div>
-            ) : null}
+              {dollIdentityArtistIsEmpty ? (
+                <div style={dollIdentityMetaHintStyle}>Assignment pending</div>
+              ) : null}
+            </div>
 
-            <input
-              type="file"
-              accept="image/*"
-              style={{ marginTop: 12 }}
-              onChange={async (e) => {
-                const file = e.target.files?.[0];
-                if (!file) return;
-                await uploadImage(file);
-              }}
-            />
+            <div style={dollIdentityMetaStyle}>
+              <div style={dollIdentityMetaLabelStyle}>Collection</div>
+              <div style={dollIdentityMetaValueStyle(dollIdentityCollection === "Unassigned")}>
+                {dollIdentityCollection}
+              </div>
+            </div>
+
+            <div style={dollIdentityStatusStyle}>
+              <div style={dollIdentityStageBadgeStyle(currentWorkflowStageStatus)}>
+                {currentWorkflowStageLabel}
+              </div>
+              <div style={dollIdentityStatusStateStyle(currentWorkflowStageStatus)}>
+                {dollIdentityWorkflowState}
+              </div>
+            </div>
           </div>
         </div>
-      </div>
 
-      <div style={{ display: "grid", gap: 16 }}>
-        <div style={contentCardStyle}>
-          <label style={labelStyle}>Color Palette</label>
-          <input
-            value={identity.color_palette}
-            onChange={(e) => setIdentity({ ...identity, color_palette: e.target.value })}
-            style={inputStyle}
-          />
-          {!identity.color_palette?.trim() ? (
-            <div style={inlineValidationHintStyle}>
-              Add a color palette.
+        <div style={digitalCardStyle}>
+          <div style={subduedSectionLabelStyle}>Physical Doll</div>
+          <div style={{ color: "#64748b", fontSize: 15, marginTop: -2, marginBottom: 14 }}>
+            Define the physical appearance of the doll.
+          </div>
+          <div style={{ ...subduedSectionLabelStyle, marginBottom: 12 }}>Visual Block</div>
+
+          <div style={visualPlaceholderStyle}>
+            <div style={{ width: "100%" }}>
+              {identity.image_url ? (
+                <img
+                  src={identity.image_url}
+                  alt="Doll"
+                  style={{
+                    width: "100%",
+                    borderRadius: 16,
+                    objectFit: "cover",
+                    maxHeight: 360,
+                  }}
+                />
+              ) : (
+                <div>
+                  <div style={{ fontWeight: 700, marginBottom: 6 }}>No image yet</div>
+                  <div style={{ fontSize: 14, color: "#64748b" }}>
+                    Upload a doll image
+                  </div>
+                </div>
+              )}
+
+              {!hasImage ? (
+                <div style={inlineValidationHintStyle}>
+                  Add a doll image to complete production.
+                </div>
+              ) : null}
+
+              <input
+                type="file"
+                accept="image/*"
+                style={{ marginTop: 12 }}
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  await uploadImage(file);
+                }}
+              />
             </div>
-          ) : null}
+          </div>
         </div>
 
-        <div style={contentCardStyle}>
-          <label style={labelStyle}>Notable Features</label>
-          <textarea
-            value={identity.notable_features}
-            onChange={(e) => {
-              autoResizeTextarea(e.currentTarget);
-              setIdentity({ ...identity, notable_features: e.target.value });
-            }}
-            ref={(node) => autoResizeTextarea(node)}
-            style={{ ...inputStyle, minHeight: 160, resize: "none", overflow: "hidden" }}
-          />
-          {!identity.notable_features?.trim() ? (
-            <div style={inlineValidationHintStyle}>
-              Describe the key physical features.
-            </div>
-          ) : null}
-        </div>
-      </div>
+        <div style={{ display: "grid", gap: 16 }}>
+          <div style={contentCardStyle}>
+            <label style={labelStyle}>Color Palette</label>
+            <input
+              value={identity.color_palette}
+              onChange={(e) => setIdentity({ ...identity, color_palette: e.target.value })}
+              style={inputStyle}
+            />
+            {!identity.color_palette?.trim() ? (
+              <div style={inlineValidationHintStyle}>
+                Add a color palette.
+              </div>
+            ) : null}
+          </div>
 
-      <div style={{ paddingTop: 4 }}>
-        <button onClick={saveIdentity} style={primaryButton}>Save Production Details</button>
-      </div>
+          <div style={contentCardStyle}>
+            <label style={labelStyle}>Notable Features</label>
+            <textarea
+              value={identity.notable_features}
+              onChange={(e) => {
+                autoResizeTextarea(e.currentTarget);
+                setIdentity({ ...identity, notable_features: e.target.value });
+              }}
+              ref={(node) => autoResizeTextarea(node)}
+              style={{ ...inputStyle, minHeight: 160, resize: "none", overflow: "hidden" }}
+            />
+            {!identity.notable_features?.trim() ? (
+              <div style={inlineValidationHintStyle}>
+                Describe the key physical features.
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        <div style={{ paddingTop: 4 }}>
+          <button onClick={saveIdentity} style={primaryButton}>Save Production Details</button>
+        </div>
+      </fieldset>
     </div>
   );
   const characterDepartmentContent = (
-    <div style={{ marginTop: 24 }}>
+    <div style={{ marginTop: 24, display: "grid", gap: 20 }}>
+      <fieldset
+        disabled={!isCharacterEditable}
+        style={{
+          border: "none",
+          padding: 0,
+          margin: 0,
+          minInlineSize: 0,
+          display: "grid",
+          gap: 16,
+          opacity: isCharacterEditable ? 1 : 0.84,
+        }}
+      >
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
         <div>
           <label style={labelStyle}>Name</label>
@@ -2250,10 +2758,23 @@ export default function Page() {
       <div style={{ marginTop: 18 }}>
         <button onClick={saveIdentity} style={primaryButton}>Save Identity</button>
       </div>
+      </fieldset>
     </div>
   );
   const contentDepartmentContent = (
     <div style={{ marginTop: 24, display: "grid", gap: 20 }}>
+      <fieldset
+        disabled={!isContentEditable}
+        style={{
+          border: "none",
+          padding: 0,
+          margin: 0,
+          minInlineSize: 0,
+          display: "grid",
+          gap: 20,
+          opacity: isContentEditable ? 1 : 0.84,
+        }}
+      >
       <div>
         {!hasStoryContent ? (
           <div style={{ ...hintStackStyle, marginBottom: 16 }}>
@@ -2475,6 +2996,7 @@ export default function Page() {
           </div>
         </div>
       </div>
+      </fieldset>
     </div>
   );
   const digitalDepartmentContent = (
@@ -2563,14 +3085,24 @@ export default function Page() {
           </div>
 
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 14 }}>
-            <button onClick={activateDigitalLayer} style={primaryButton}>
+            <button
+              onClick={activateDigitalLayer}
+              style={isGatewayEditable ? primaryButton : disabledActionStyle(primaryButton)}
+              disabled={!isGatewayEditable}
+            >
               Prepare Digital Identity
             </button>
 
             <button
               onClick={savedQrUrl ? requestQrRegeneration : generateQrCode}
-              style={savedQrUrl ? secondaryButton : primaryButton}
-              disabled={!publicUrl || qrUploading || !qrReady}
+              style={
+                !isGatewayEditable
+                  ? disabledActionStyle(savedQrUrl ? secondaryButton : primaryButton)
+                  : savedQrUrl
+                    ? secondaryButton
+                    : primaryButton
+              }
+              disabled={!isGatewayEditable || !publicUrl || qrUploading || !qrReady}
             >
               {qrUploading
                 ? savedQrUrl
@@ -2619,8 +3151,12 @@ export default function Page() {
                 </button>
                 <button
                   onClick={confirmQrRegeneration}
-                  style={dangerButton}
-                  disabled={qrUploading}
+                  style={
+                    !isGatewayEditable
+                      ? disabledActionStyle(dangerButton)
+                      : dangerButton
+                  }
+                  disabled={!isGatewayEditable || qrUploading}
                 >
                   {qrUploading ? "Regenerating..." : "Regenerate anyway"}
                 </button>
@@ -2689,6 +3225,7 @@ export default function Page() {
                 type="file"
                 accept="image/*"
                 style={{ marginTop: 12 }}
+                disabled={!isGatewayEditable}
                 onChange={async (e) => {
                   const file = e.target.files?.[0];
                   if (!file) return;
@@ -2703,6 +3240,43 @@ export default function Page() {
   );
   const commerceDepartmentContent = (
     <div style={{ marginTop: 24, display: "grid", gap: 20 }}>
+      <div style={contentCardStyle}>
+        <div style={sectionLabelStyle}>Product Commerce Status</div>
+        <div style={{ color: "#64748b", fontSize: 15, marginTop: -2, marginBottom: 14 }}>
+          Controls whether this doll is sellable and counts toward Gateway readiness.
+        </div>
+        <select
+          value={commerceStatus}
+          onChange={(e) => setCommerceStatus(normalizeCommerceStatus(e.target.value))}
+          style={
+            isGatewayEditable && !commerceSaving
+              ? inputStyle
+              : disabledFormControlStyle(inputStyle)
+          }
+          disabled={!isGatewayEditable || commerceSaving}
+        >
+          <option value="draft">Draft</option>
+          <option value="ready_for_sale">Ready for Sale</option>
+          <option value="unavailable">Unavailable</option>
+        </select>
+        <div style={inlineValidationHintStyle}>
+          Product Commerce Status controls sellability. Order Status tracks the customer/order lifecycle.
+        </div>
+        <div style={{ marginTop: 16 }}>
+          <button
+            onClick={saveCommerceStatus}
+            style={
+              isGatewayEditable && !commerceSaving
+                ? primaryButton
+                : disabledActionStyle(primaryButton)
+            }
+            disabled={!isGatewayEditable || commerceSaving}
+          >
+            {commerceSaving ? "Saving..." : "Save Product Commerce Status"}
+          </button>
+        </div>
+      </div>
+
       <div style={contentCardStyle}>
         <div style={sectionLabelStyle}>Customer Name</div>
         <input
@@ -2733,6 +3307,9 @@ export default function Page() {
           <option value="shipped">Shipped</option>
           <option value="delivered">Delivered</option>
         </select>
+        <div style={inlineValidationHintStyle}>
+          Tracks the customer/order lifecycle only. This does not control Gateway readiness.
+        </div>
       </div>
 
       <div style={contentCardStyle}>
@@ -2846,6 +3423,104 @@ export default function Page() {
       ) : null}
     </div>
   );
+  const overviewSummaryContent = (
+    <div style={{ marginTop: 24, display: "grid", gap: 20 }}>
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+        {[
+          { label: "Sellability", value: formatStatusToken(effectiveCommerceStatus), tone: "neutral" },
+          {
+            label: "Access",
+            value: formatStatusToken(effectiveAccessStatus),
+            tone: effectiveAccessStatus === "generated" ? "success" : "warn",
+          },
+          {
+            label: "Readiness",
+            value: readinessStatusLabel,
+            tone: selectedReadiness.overall ? "success" : "warn",
+          },
+        ].map((item) => (
+          <div key={item.label} style={statusPillStyle(item.tone)}>
+            <div
+              style={{
+                fontSize: 12,
+                letterSpacing: "0.08em",
+                textTransform: "uppercase",
+                opacity: 0.75,
+                fontWeight: 700,
+              }}
+            >
+              {item.label}
+            </div>
+            <div style={{ fontWeight: 700 }}>{item.value}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={contentCardStyle}>
+        <div style={sectionLabelStyle}>Production Readiness</div>
+        {productionWorkflowComplete ? (
+          <div style={operatorHintStyle("success")}>
+            {selectedReadiness.overall
+              ? "Production is complete."
+              : "Production is complete. Complete all readiness sections before progressing the order."}
+          </div>
+        ) : (
+          <div style={{ display: "grid", gap: 10 }}>
+            {overviewBlockingItems.map((item) => (
+              <div
+                key={item.key}
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  gap: 12,
+                  padding: "12px 14px",
+                  border: "1px solid #e2e8f0",
+                  borderRadius: 16,
+                  background: "#f8fafc",
+                }}
+              >
+                <div style={{ fontWeight: 600 }}>{item.label}</div>
+                <div style={{ color: "#9a3412", fontSize: 14, textAlign: "right" }}>
+                  {readinessMissingLabel(item.state.missing[0])}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+  const overviewWorkspaceContent = (
+    <>
+      {overviewSummaryContent}
+      {dangerZoneDepartmentContent}
+    </>
+  );
+  const readyStageContent = (
+    <>
+      {overviewSummaryContent}
+    </>
+  );
+  const visibleStageContent =
+    currentStageView === "overview"
+      ? overviewWorkspaceContent
+      : currentStageView === "registered"
+      ? productionDepartmentContent
+      : currentStageView === "character"
+        ? characterDepartmentContent
+        : currentStageView === "content"
+          ? contentDepartmentContent
+          : currentStageView === "gateway"
+            ? (
+                <>
+                  {digitalDepartmentContent}
+                  {commerceDepartmentContent}
+                </>
+              )
+            : currentStageView === "ready"
+              ? readyStageContent
+              : null;
 
   return (
     <main style={{ background: "#f6f7fb", minHeight: "100vh", padding: 32, fontFamily: "Inter, Arial, sans-serif", color: "#0f172a" }}>
@@ -2892,20 +3567,6 @@ export default function Page() {
               <div style={{ fontSize: 42, marginTop: 10, fontWeight: 700 }}>{value}</div>
             </div>
           ))}
-        </div>
-
-        <div style={{ marginTop: 24, display: "grid", gap: 16 }}>
-          {notice ? (
-            <div style={{ background: "#dff5e7", border: "1px solid #9fe0b4", color: "#166534", padding: 16, borderRadius: 16 }}>
-              {notice}
-            </div>
-          ) : null}
-
-          {error ? (
-            <div style={{ background: "#fee2e2", border: "1px solid #fca5a5", color: "#991b1b", padding: 16, borderRadius: 16 }}>
-              {error}
-            </div>
-          ) : null}
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "320px minmax(0, 1fr)", gap: 24, marginTop: 28 }}>
@@ -2971,8 +3632,13 @@ export default function Page() {
                       </div>
                     </div>
 
-                    <div style={{ marginTop: 14, height: 8, background: "#e2e8f0", borderRadius: 999 }}>
-                      <div style={{ width: `${progressFromStatus(d.status)}%`, height: "100%", background: "#0f172a", borderRadius: 999 }} />
+                    <div style={{ ...pipelineProgressTrackStyle, marginTop: 14 }}>
+                      <div
+                        style={{
+                          ...pipelineProgressFillStyle,
+                          width: `${getPipelineProgressPercent(d)}%`,
+                        }}
+                      />
                     </div>
                   </button>
                 ))}
@@ -2991,9 +3657,6 @@ export default function Page() {
                       <h2 style={{ margin: 0, fontSize: 28 }}>{selected.name}</h2>
                       {selectedIsArchived ? <div style={archivedBadgeStyle}>Archived</div> : null}
                     </div>
-                    <div style={{ color: "#64748b", marginTop: 6 }}>
-                      {selected.internal_id} · {identity.theme_name || "Unassigned"}
-                    </div>
                   </div>
 
                   <div style={{ display: "flex", gap: 12 }}>
@@ -3001,176 +3664,250 @@ export default function Page() {
                     <button onClick={advanceStage} style={primaryButton}>Advance Production Stage</button>
                   </div>
                 </div>
-                <div
-                  style={{
-                    marginTop: 18,
-                    background: "#f8fafc",
-                    border: "1px solid #e2e8f0",
-                    borderRadius: 22,
-                    padding: 20,
-                    display: "grid",
-                    gap: 18,
-                  }}
-                >
-                  <div>
-                    <div style={{ ...sectionLabelStyle, marginBottom: 10 }}>Pipeline</div>
-                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                      {PRODUCTION_STAGES.map((stage) => {
-                        const isCurrent = stage.value === pipelineStageNumber;
-
-                        return (
-                          <div
-                            key={stage.value}
-                            style={{
-                              padding: "12px 14px",
-                              borderRadius: 16,
-                              border: isCurrent ? "1px solid #0f172a" : "1px solid #cbd5e1",
-                              background: isCurrent ? "#0f172a" : "#fff",
-                              color: isCurrent ? "#fff" : "#334155",
-                              minWidth: 112,
-                            }}
-                          >
-                            <div style={{ fontSize: 12, opacity: isCurrent ? 0.82 : 0.7, marginBottom: 4 }}>
-                              {stage.value}
-                            </div>
-                            <div style={{ fontWeight: 700, fontSize: 14 }}>{stage.label}</div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </div>
-                <div style={statusHintBlockStyle}>
-                  <div style={{ ...sectionLabelStyle, marginBottom: 8 }}>Next Step</div>
-                  <div style={workspaceNextStepStyle(selectedReadiness.overall)}>
-                    {workspaceNextStepMessage}
-                  </div>
-                </div>
-
-                {selectedIsArchived ? (
-                  <div style={archivedBannerStyle}>
-                    This doll is archived. Its digital identity and related records are preserved, but it is no longer
-                    part of the active lifecycle.
-                  </div>
-                ) : null}
-
-                <div style={{ marginTop: 8, height: 8, background: "#e2e8f0", borderRadius: 999 }}>
-                  <div style={{ width: `${progressFromStatus(effectiveLifecycleStatus)}%`, height: "100%", background: "#0f172a", borderRadius: 999 }} />
-                </div>
-
-                <div style={{ marginTop: 18 }}>
-                  <div style={{ ...sectionLabelStyle, marginBottom: 10 }}>Departments</div>
-                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                    {DEPARTMENTS.map((department) => (
-                      <button
-                        key={department}
-                        onClick={() => setActiveDepartment(department)}
-                        style={{
-                          padding: "12px 18px",
-                          borderRadius: 16,
-                          border: currentDepartment === department ? "1px solid #0f172a" : "1px solid #cbd5e1",
-                          background: currentDepartment === department ? "#0f172a" : "#fff",
-                          color: currentDepartment === department ? "#fff" : "#0f172a",
-                          cursor: "pointer",
-                          fontSize: 15,
-                        }}
+                <div style={workflowHeaderStackStyle}>
+                  <div style={workflowHeaderPanelStyle}>
+                    <div style={workflowFeedbackSlotStyle}>
+                      <div
+                        aria-live="polite"
+                        role={workflowFeedback?.tone === "error" ? "alert" : "status"}
+                        title={workflowFeedback?.message || ""}
+                        style={workflowFeedbackMessageStyle(
+                          workflowFeedback?.tone || "muted",
+                          Boolean(workflowFeedback)
+                        )}
                       >
-                        {department}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {currentDepartment === "Overview" ? (
-                  <div style={{ marginTop: 24, display: "grid", gap: 20 }}>
-                    <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-                      {[
-                        { label: "Commerce", value: formatStatusToken(effectiveCommercialStatus), tone: "neutral" },
-                        {
-                          label: "Access",
-                          value: formatStatusToken(effectiveAccessStatus),
-                          tone: effectiveAccessStatus === "generated" ? "success" : "warn",
-                        },
-                        {
-                          label: "Readiness",
-                          value: readinessStatusLabel,
-                          tone: selectedReadiness.overall ? "success" : "warn",
-                        },
-                      ].map((item) => (
-                        <div key={item.label} style={statusPillStyle(item.tone)}>
-                          <div style={{ fontSize: 12, letterSpacing: "0.08em", textTransform: "uppercase", opacity: 0.75, fontWeight: 700 }}>
-                            {item.label}
-                          </div>
-                          <div style={{ fontWeight: 700 }}>{item.value}</div>
-                        </div>
-                      ))}
-                    </div>
-
-                    <div style={contentCardStyle}>
-                      <div style={sectionLabelStyle}>Production Readiness</div>
-                      {productionWorkflowComplete ? (
-                        <div style={operatorHintStyle("success")}>
-                          {selectedReadiness.overall
-                            ? "Production is complete."
-                            : "Production is complete. Complete all readiness sections before progressing the order."}
-                        </div>
-                      ) : (
-                        <div style={{ display: "grid", gap: 10 }}>
-                          {overviewBlockingItems.map((item) => (
-                            <div
-                              key={item.key}
-                              style={{
-                                display: "flex",
-                                justifyContent: "space-between",
-                                alignItems: "center",
-                                gap: 12,
-                                padding: "12px 14px",
-                                border: "1px solid #e2e8f0",
-                                borderRadius: 16,
-                                background: "#f8fafc",
-                              }}
-                            >
-                              <div style={{ fontWeight: 600 }}>{item.label}</div>
-                              <div style={{ color: "#9a3412", fontSize: 14, textAlign: "right" }}>
-                                {readinessMissingLabel(item.state.missing[0])}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-
-                    <div style={contentCardStyle}>
-                      <div style={sectionLabelStyle}>Next Recommended Action</div>
-                      <div style={operatorHintStyle(selectedReadiness.overall ? "success" : "muted")}>
-                        {overviewNextActionMessage}
+                        {workflowFeedback?.message || "\u00A0"}
                       </div>
                     </div>
+
+                    <div style={pipelineStageSectionStyle}>
+                      <div style={workflowSectionHeaderStyle}>
+                        <div style={{ ...sectionLabelStyle, marginBottom: 0 }}>Pipeline</div>
+                        <button
+                          onClick={() => setActiveStageView("overview")}
+                          style={overviewViewButtonStyle(currentStageView === "overview")}
+                        >
+                          Overview
+                        </button>
+                      </div>
+                      <div className="pipeline-stage-grid" style={pipelineStageGridStyle}>
+                        {PRODUCTION_STAGES.map((stage) => {
+                          const stageStatus = selectedPipelineState?.[stage.key]?.status || "locked";
+                          const isCurrentOpenStage = stage.key === currentOpenPipelineStage;
+                          const isCompletedStage = stageStatus === "completed";
+                          const isActiveStageView = currentStageView === stage.key;
+
+                          return (
+                            <div
+                              key={stage.value}
+                              onClick={() => setActiveStageView(stage.key)}
+                              style={pipelineStageCardStyle(stageStatus, isActiveStageView)}
+                            >
+                              <div style={pipelineStageCardHeaderStyle}>
+                                <div style={pipelineStageNumberStyle(stageStatus)}>
+                                  Stage {stage.value}
+                                </div>
+                                <div
+                                  aria-label={pipelineStageStateLabel(stageStatus)}
+                                  title={pipelineStageStateLabel(stageStatus)}
+                                  style={pipelineStageStatusIconStyle(stageStatus)}
+                                >
+                                  {pipelineStageStatusIcon(stageStatus)}
+                                </div>
+                              </div>
+                              <div style={pipelineStageNameStyle(stageStatus)}>{stage.label}</div>
+                              {isCurrentOpenStage ? (
+                                <div style={pipelineStageActionRowStyle}>
+                                  <button
+                                    onClick={() => completePipelineStage(stage.key)}
+                                    style={pipelineStageActionButtonStyle(
+                                      stageStatus,
+                                      pipelineStageActionBusy
+                                    )}
+                                    disabled={pipelineStageActionBusy}
+                                  >
+                                    {pipelineStageCompleting === stage.key
+                                      ? "Completing..."
+                                      : "Complete"}
+                                  </button>
+                                </div>
+                              ) : isCompletedStage ? (
+                                <div style={pipelineStageActionRowStyle}>
+                                  <button
+                                    onClick={() => requestReopenPipelineStage(stage.key)}
+                                    style={pipelineStageSecondaryActionButtonStyle(
+                                      stageStatus,
+                                      pipelineStageActionBusy
+                                    )}
+                                    disabled={pipelineStageActionBusy}
+                                  >
+                                    {pipelineStageReopening === stage.key
+                                      ? "Reopening..."
+                                      : "Reopen"}
+                                  </button>
+                                </div>
+                              ) : null}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div style={workflowGuidanceRowStyle}>
+                      <div style={workflowGuidanceLabelStyle}>Guidance</div>
+                      <div style={workflowGuidanceTextStyle(workflowGuidance.tone)}>
+                        {workflowGuidance.message}
+                      </div>
+                    </div>
+
+                    <div aria-hidden="true" style={pipelineProgressTrackStyle}>
+                      <div
+                        style={{
+                          ...pipelineProgressFillStyle,
+                          width: `${selectedPipelineProgressPercent}%`,
+                        }}
+                      />
+                    </div>
                   </div>
-                ) : currentDepartment === "Production" ? (
-                  productionDepartmentContent
-                ) : currentDepartment === "Character" ? (
-                  characterDepartmentContent
-                ) : currentDepartment === "Content" ? (
-                  contentDepartmentContent
-                ) : currentDepartment === "Digital" ? (
-                  digitalDepartmentContent
-                ) : currentDepartment === "Commerce" ? (
-                  commerceDepartmentContent
-                ) : currentDepartment === "Danger Zone" ? (
-                  dangerZoneDepartmentContent
-                ) : (
-                  null
-                )}
+
+                  {showLegacyDepartmentsNavigation ? (
+                    <div style={departmentsSectionStyle}>
+                      <div style={{ ...sectionLabelStyle, marginBottom: 10 }}>Departments</div>
+                      <div style={departmentsRowStyle}>
+                        {DEPARTMENTS.map((department) => (
+                          <button
+                            key={department}
+                            onClick={() => setActiveDepartment(department)}
+                            style={departmentPillStyle(currentDepartment === department)}
+                          >
+                            {department}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+
+                {visibleStageContent}
               </>
             ) : (
-              <div style={{ color: "#64748b" }}>Create your first doll to begin.</div>
+              <>
+                {workflowFeedback ? (
+                  <div style={workflowFeedbackSlotStyle}>
+                    <div
+                      aria-live="polite"
+                      role={workflowFeedback.tone === "error" ? "alert" : "status"}
+                      title={workflowFeedback.message}
+                      style={workflowFeedbackMessageStyle(workflowFeedback.tone, true)}
+                    >
+                      {workflowFeedback.message}
+                    </div>
+                  </div>
+                ) : null}
+                <div style={{ color: "#64748b" }}>Create your first doll to begin.</div>
+              </>
             )}
           </section>
         </div>
-
+        <ActionWarningModal
+          open={Boolean(stageActionWarning)}
+          title={
+            stageActionWarning?.type === "reopen" && stageActionWarning?.stage
+              ? `Reopen ${PIPELINE_STAGE_LABELS[stageActionWarning.stage]}?`
+              : ""
+          }
+          cancelLabel="Cancel"
+          confirmLabel="Confirm Reopen"
+          onCancel={() => setStageActionWarning(null)}
+          onConfirm={confirmStageActionWarning}
+        >
+          <div style={actionWarningTextStyle}>
+            This will make this stage editable again and lock all downstream stages.
+          </div>
+          <div style={{ ...actionWarningTextStyle, marginTop: 10 }}>
+            No data will be lost, but downstream progress will need to be revalidated.
+          </div>
+          {stageActionWarning?.type === "reopen" && stageActionWarning.affectedStages?.length ? (
+            <div style={actionWarningListStyle}>
+              This will lock:{" "}
+              {stageActionWarning.affectedStages
+                .map((stage) => PIPELINE_STAGE_LABELS[stage] || formatStatusToken(stage))
+                .join(", ")}
+            </div>
+          ) : null}
+        </ActionWarningModal>
       </div>
+      <style jsx>{`
+        .doll-identity-card:hover {
+          box-shadow: none !important;
+        }
+
+        .pipeline-stage-grid {
+          width: 100%;
+        }
+
+        @media (max-width: 900px) {
+          .doll-identity-meta-strip {
+            grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+          }
+        }
+
+        @media (max-width: 640px) {
+          .doll-identity-meta-strip {
+            grid-template-columns: 1fr !important;
+          }
+        }
+
+        @media (max-width: 1180px) {
+          .pipeline-stage-grid {
+            grid-template-columns: repeat(auto-fit, minmax(148px, 1fr)) !important;
+          }
+        }
+
+        @media (max-width: 840px) {
+          .pipeline-stage-grid {
+            grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)) !important;
+          }
+        }
+      `}</style>
     </main>
+  );
+}
+
+function ActionWarningModal({
+  open,
+  title,
+  children,
+  cancelLabel = "Cancel",
+  confirmLabel = "Confirm",
+  onCancel,
+  onConfirm,
+}) {
+  if (!open) return null;
+
+  return (
+    <div style={actionWarningOverlayStyle} onClick={onCancel}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="action-warning-title"
+        style={actionWarningModalStyle}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div id="action-warning-title" style={actionWarningTitleStyle}>
+          {title}
+        </div>
+        {children}
+        <div style={actionWarningActionsStyle}>
+          <button onClick={onCancel} style={secondaryButton}>
+            {cancelLabel}
+          </button>
+          <button onClick={onConfirm} style={primaryButton}>
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -3472,24 +4209,257 @@ const archivedBadgeStyle = {
   fontWeight: 700,
 };
 
-const archivedBannerStyle = {
-  marginTop: 12,
-  background: "#f8fafc",
-  border: "1px solid #cbd5e1",
-  borderRadius: 16,
-  padding: 14,
-  color: "#475569",
-  lineHeight: 1.7,
-  fontSize: 14,
+const workflowHeaderStackStyle = {
+  marginTop: 14,
+  display: "grid",
+  gap: 12,
 };
 
-const statusHintBlockStyle = {
-  marginTop: 16,
+const workflowHeaderPanelStyle = {
   background: "#f8fafc",
   border: "1px solid #e2e8f0",
-  borderRadius: 18,
-  padding: 14,
+  borderRadius: 22,
+  padding: 20,
+  display: "grid",
+  gap: 14,
 };
+
+const workflowSectionHeaderStyle = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: 12,
+  flexWrap: "wrap",
+  marginBottom: 12,
+};
+
+const pipelineProgressTrackStyle = {
+  height: 8,
+  background: "#e2e8f0",
+  borderRadius: 999,
+};
+
+const pipelineProgressFillStyle = {
+  height: "100%",
+  background: "#0f172a",
+  borderRadius: 999,
+};
+
+const pipelineStageGridStyle = {
+  display: "grid",
+  width: "100%",
+  minWidth: 0,
+  gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
+  gap: 8,
+  alignItems: "stretch",
+  justifyItems: "stretch",
+  justifyContent: "stretch",
+  gridAutoRows: "1fr",
+};
+
+const pipelineStageSectionStyle = {
+  width: "100%",
+  minWidth: 0,
+  display: "grid",
+};
+
+const pipelineStageActionRowStyle = {
+  marginTop: 10,
+};
+
+const pipelineStageCardHeaderStyle = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: 8,
+};
+
+function pipelineStageNumberStyle(status = "locked") {
+  return {
+    fontSize: 10,
+    letterSpacing: "0.1em",
+    textTransform: "uppercase",
+    fontWeight: 700,
+    color:
+      status === "open"
+        ? "rgba(255, 255, 255, 0.74)"
+        : status === "completed"
+          ? "#15803d"
+          : "#64748b",
+  };
+}
+
+function pipelineStageNameStyle(status = "locked") {
+  return {
+    fontWeight: 700,
+    fontSize: 15,
+    lineHeight: 1.25,
+    color:
+      status === "open"
+        ? "#ffffff"
+        : status === "completed"
+          ? "#166534"
+          : "#0f172a",
+  };
+}
+
+function pipelineStageStatusIconStyle(status = "locked") {
+  if (status === "completed") {
+    return {
+      width: 28,
+      height: 28,
+      display: "inline-flex",
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: 999,
+      background: "#ffffff",
+      color: "#166534",
+      border: "1px solid #86efac",
+      flexShrink: 0,
+    };
+  }
+
+  if (status === "open") {
+    return {
+      width: 28,
+      height: 28,
+      display: "inline-flex",
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: 999,
+      background: "rgba(255, 255, 255, 0.12)",
+      color: "#ffffff",
+      border: "1px solid rgba(255, 255, 255, 0.18)",
+      flexShrink: 0,
+    };
+  }
+
+  return {
+    width: 28,
+    height: 28,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 999,
+    background: "#f8fafc",
+    color: "#64748b",
+    border: "1px solid #cbd5e1",
+    flexShrink: 0,
+  };
+}
+
+function pipelineStageStatusIcon(status = "locked") {
+  if (status === "completed") {
+    return (
+      <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+        <path
+          d="M3.25 8.25 6.45 11.2 12.75 4.8"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    );
+  }
+
+  if (status === "open") {
+    return (
+      <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+        <path
+          d="M11.1 6V4.85A3.1 3.1 0 0 0 8 1.75a3.1 3.1 0 0 0-3.1 3.1"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        <rect
+          x="2.9"
+          y="6"
+          width="10.2"
+          height="7.9"
+          rx="2.1"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.6"
+        />
+      </svg>
+    );
+  }
+
+  return (
+    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+      <path
+        d="M4.9 6V4.85A3.1 3.1 0 0 1 8 1.75a3.1 3.1 0 0 1 3.1 3.1V6"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <rect
+        x="2.9"
+        y="6"
+        width="10.2"
+        height="7.9"
+        rx="2.1"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+      />
+    </svg>
+  );
+}
+
+const departmentsSectionStyle = {
+  background: "#ffffff",
+  border: "1px solid #e2e8f0",
+  borderRadius: 18,
+  padding: "16px 20px",
+};
+
+function overviewViewButtonStyle(isActive = false) {
+  return {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "8px 12px",
+    borderRadius: 999,
+    border: isActive ? "1px solid #0f172a" : "1px solid #cbd5e1",
+    background: isActive ? "#0f172a" : "#ffffff",
+    color: isActive ? "#ffffff" : "#334155",
+    fontSize: 12,
+    letterSpacing: "0.08em",
+    textTransform: "uppercase",
+    fontWeight: 700,
+    cursor: "pointer",
+  };
+}
+
+const departmentsRowStyle = {
+  display: "flex",
+  gap: 10,
+  flexWrap: "wrap",
+  alignItems: "center",
+};
+
+function departmentPillStyle(isActive = false) {
+  return {
+    padding: "12px 18px",
+    borderRadius: 16,
+    border: isActive ? "1px solid #0f172a" : "1px solid #cbd5e1",
+    background: isActive ? "#0f172a" : "#fff",
+    color: isActive ? "#fff" : "#0f172a",
+    cursor: "pointer",
+    fontSize: 15,
+    minHeight: 48,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+  };
+}
 
 const hintStackStyle = {
   display: "grid",
@@ -3503,15 +4473,82 @@ const inlineValidationHintStyle = {
   color: "#64748b",
 };
 
-function workspaceNextStepStyle(isComplete = false) {
+const workflowFeedbackSlotStyle = {
+  minHeight: 40,
+  display: "grid",
+  alignItems: "start",
+};
+
+function workflowFeedbackMessageStyle(tone = "success", isVisible = true) {
+  const baseStyle = {
+    padding: "8px 10px",
+    borderRadius: 12,
+    fontSize: 13,
+    lineHeight: 1.5,
+    minHeight: 40,
+    maxWidth: "100%",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    opacity: isVisible ? 1 : 0,
+    visibility: isVisible ? "visible" : "hidden",
+    transition: "opacity 160ms ease, visibility 160ms ease",
+  };
+
+  if (tone === "error") {
+    return {
+      ...baseStyle,
+      background: "#fef2f2",
+      border: "1px solid #fecaca",
+      color: "#991b1b",
+    };
+  }
+
+  if (tone === "muted") {
+    return {
+      ...baseStyle,
+      background: "#ffffff",
+      border: "1px solid #e2e8f0",
+      color: "#475569",
+    };
+  }
+
   return {
-    background: "#ffffff",
-    border: `1px solid ${isComplete ? "#d1fae5" : "#e2e8f0"}`,
-    borderRadius: 14,
-    padding: "12px 14px",
-    color: isComplete ? "#334155" : "#475569",
+    ...baseStyle,
+    background: "#f0fdf4",
+    border: "1px solid #bbf7d0",
+    color: "#166534",
+  };
+}
+
+const workflowGuidanceRowStyle = {
+  display: "flex",
+  flexWrap: "wrap",
+  gap: 8,
+  alignItems: "baseline",
+};
+
+const workflowGuidanceLabelStyle = {
+  fontSize: 11,
+  letterSpacing: "0.08em",
+  textTransform: "uppercase",
+  color: "#64748b",
+  fontWeight: 700,
+};
+
+function workflowGuidanceTextStyle(tone = "muted") {
+  return {
+    color:
+      tone === "success"
+        ? "#166534"
+        : tone === "warn"
+          ? "#9a3412"
+          : "#334155",
     fontSize: 14,
     lineHeight: 1.6,
+    fontWeight: 500,
+    flex: "1 1 0%",
+    minWidth: 0,
   };
 }
 
@@ -3590,6 +4627,175 @@ function statusPillStyle(tone = "neutral") {
   };
 }
 
+function pipelineStageCardStyle(status = "locked", isActive = false) {
+  const activeShadow =
+    status === "completed"
+      ? "0 0 0 2px rgba(22, 101, 52, 0.16)"
+      : status === "open"
+        ? "0 0 0 2px rgba(15, 23, 42, 0.18)"
+        : "0 0 0 2px rgba(71, 85, 105, 0.14)";
+  const baseStyle = {
+    padding: "12px",
+    borderRadius: 16,
+    display: "grid",
+    gridTemplateRows: "auto minmax(0, 1fr) auto",
+    gap: 8,
+    width: "100%",
+    minWidth: 0,
+    maxWidth: "none",
+    minHeight: 132,
+    height: "100%",
+    alignContent: "start",
+    boxSizing: "border-box",
+    cursor: "pointer",
+    boxShadow: isActive ? activeShadow : "none",
+    justifySelf: "stretch",
+    alignSelf: "stretch",
+  };
+
+  if (status === "completed") {
+    return {
+      ...baseStyle,
+      border: "1px solid #86efac",
+      background: "#ecfdf5",
+      color: "#166534",
+    };
+  }
+
+  if (status === "open") {
+    return {
+      ...baseStyle,
+      border: "1px solid #0f172a",
+      background: "#0f172a",
+      color: "#ffffff",
+    };
+  }
+
+  return {
+    ...baseStyle,
+    border: "1px solid #cbd5e1",
+    background: "#fff",
+    color: "#475569",
+  };
+}
+
+function pipelineStageActionButtonStyle(status = "open", isBusy = false) {
+  const baseStyle =
+    status === "open"
+      ? {
+          width: "100%",
+          background: "#ffffff",
+          color: "#0f172a",
+          border: "none",
+          borderRadius: 12,
+          padding: "8px 10px",
+          fontSize: 13,
+          fontWeight: 700,
+          cursor: "pointer",
+        }
+      : {
+          ...primaryButton,
+          width: "100%",
+          borderRadius: 12,
+          padding: "8px 10px",
+          fontSize: 13,
+          fontWeight: 700,
+        };
+
+  return isBusy
+    ? {
+        ...baseStyle,
+        opacity: 0.72,
+        cursor: "not-allowed",
+      }
+    : baseStyle;
+}
+
+function pipelineStageSecondaryActionButtonStyle(status = "completed", isBusy = false) {
+  const baseStyle =
+    status === "completed"
+      ? {
+          width: "100%",
+          background: "#ffffff",
+          color: "#166534",
+          border: "1px solid #86efac",
+          borderRadius: 12,
+          padding: "8px 10px",
+          fontSize: 13,
+          fontWeight: 700,
+          cursor: "pointer",
+        }
+      : {
+          ...secondaryButton,
+          width: "100%",
+          borderRadius: 12,
+          padding: "8px 10px",
+          fontSize: 13,
+          fontWeight: 700,
+        };
+
+  return isBusy
+    ? {
+        ...baseStyle,
+        opacity: 0.72,
+        cursor: "not-allowed",
+      }
+    : baseStyle;
+}
+
+const actionWarningOverlayStyle = {
+  position: "fixed",
+  inset: 0,
+  background: "rgba(15, 23, 42, 0.48)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: 24,
+  zIndex: 1000,
+};
+
+const actionWarningModalStyle = {
+  width: "100%",
+  maxWidth: 560,
+  background: "#ffffff",
+  border: "1px solid #e2e8f0",
+  borderRadius: 24,
+  padding: 24,
+  boxShadow: "0 24px 64px rgba(15, 23, 42, 0.18)",
+};
+
+const actionWarningTitleStyle = {
+  fontSize: 26,
+  fontWeight: 700,
+  color: "#0f172a",
+  marginBottom: 14,
+};
+
+const actionWarningTextStyle = {
+  color: "#475569",
+  lineHeight: 1.7,
+  fontSize: 15,
+};
+
+const actionWarningListStyle = {
+  marginTop: 14,
+  background: "#f8fafc",
+  border: "1px solid #e2e8f0",
+  borderRadius: 16,
+  padding: "12px 14px",
+  color: "#334155",
+  lineHeight: 1.6,
+  fontSize: 14,
+  fontWeight: 600,
+};
+
+const actionWarningActionsStyle = {
+  display: "flex",
+  gap: 12,
+  flexWrap: "wrap",
+  marginTop: 20,
+};
+
 const visualPlaceholderStyle = {
   border: "1px dashed #cbd5e1",
   borderRadius: 18,
@@ -3611,6 +4817,15 @@ const sectionLabelStyle = {
   fontWeight: 700,
 };
 
+const subduedSectionLabelStyle = {
+  fontSize: 12,
+  textTransform: "uppercase",
+  letterSpacing: "0.14em",
+  color: "#a3b1c2",
+  marginBottom: 10,
+  fontWeight: 600,
+};
+
 const mutedTextStyle = {
   color: "#64748b",
   lineHeight: 1.7,
@@ -3623,6 +4838,165 @@ const contentCardStyle = {
   border: "1px solid #e5e7eb",
   borderRadius: 22,
   padding: 20,
+};
+
+const dollIdentityCardStyle = {
+  background: "#f8fafc",
+  border: "1px solid #e2e8f0",
+  borderRadius: 22,
+  padding: "18px 20px 16px",
+  display: "grid",
+  gap: 12,
+  boxShadow: "none",
+  transition: "transform 0.18s ease, box-shadow 0.18s ease",
+};
+
+const dollIdentityHeaderRowStyle = {
+  display: "grid",
+  gap: 8,
+};
+
+const dollIdentityLeadStyle = {
+  width: "100%",
+  minWidth: 0,
+  display: "grid",
+  gap: 0,
+};
+
+const dollIdentityPrimaryStyle = {
+  width: "100%",
+  minWidth: 0,
+  display: "grid",
+  gap: 7,
+};
+
+const dollIdentitySupportingInfoStyle = {
+  display: "flex",
+  flexWrap: "wrap",
+  alignItems: "center",
+  gap: 8,
+  minWidth: 0,
+};
+
+const dollIdentityIdStyle = {
+  fontSize: 12.5,
+  letterSpacing: "0.04em",
+  textTransform: "uppercase",
+  color: "#64748b",
+  fontWeight: 600,
+};
+
+const dollIdentityInfoDividerStyle = {
+  width: 4,
+  height: 4,
+  borderRadius: 999,
+  background: "rgba(100, 116, 139, 0.55)",
+  flexShrink: 0,
+};
+
+const dollIdentityNameStyle = {
+  fontSize: 22,
+  lineHeight: 1.15,
+  fontWeight: 700,
+  color: "#0f172a",
+  minWidth: 0,
+  whiteSpace: "nowrap",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+};
+
+const dollIdentityThemeStyle = {
+  color: "#64748b",
+  fontSize: 12.5,
+  lineHeight: 1.35,
+  fontWeight: 500,
+  minWidth: 0,
+  whiteSpace: "nowrap",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+};
+
+const dollIdentityStatusStyle = {
+  display: "grid",
+  gap: 4,
+  alignContent: "start",
+  minWidth: 0,
+};
+
+function dollIdentityStageBadgeStyle(status = "locked") {
+  return {
+    fontSize: 11,
+    lineHeight: 1.25,
+    letterSpacing: "0.08em",
+    textTransform: "uppercase",
+    color: "rgba(100, 116, 139, 0.78)",
+    fontWeight: 600,
+    minWidth: 0,
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+  };
+}
+
+function dollIdentityStatusStateStyle(status = "locked") {
+  return {
+    color: "#1e293b",
+    fontSize: 14,
+    lineHeight: 1.35,
+    fontWeight: 600,
+    minWidth: 0,
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+  };
+}
+
+const dollIdentityDividerStyle = {
+  width: "100%",
+  height: 1,
+  background:
+    "linear-gradient(90deg, rgba(148,163,184,0) 0%, rgba(148,163,184,0.28) 14%, rgba(148,163,184,0.28) 86%, rgba(148,163,184,0) 100%)",
+};
+
+const dollIdentityMetaStripStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+  gap: 16,
+  alignItems: "start",
+};
+
+const dollIdentityMetaStyle = {
+  display: "grid",
+  gap: 4,
+  alignContent: "start",
+  minWidth: 0,
+};
+
+const dollIdentityMetaLabelStyle = {
+  fontSize: 11,
+  letterSpacing: "0.08em",
+  textTransform: "uppercase",
+  color: "rgba(100, 116, 139, 0.78)",
+  fontWeight: 600,
+};
+
+function dollIdentityMetaValueStyle(isEmpty = false) {
+  return {
+    color: isEmpty ? "#475569" : "#1e293b",
+    fontSize: 14,
+    lineHeight: 1.35,
+    fontWeight: 600,
+    minWidth: 0,
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+  };
+}
+
+const dollIdentityMetaHintStyle = {
+  color: "rgba(100, 116, 139, 0.76)",
+  fontSize: 11.5,
+  lineHeight: 1.35,
 };
 
 const contentGridStyle = {

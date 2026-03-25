@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "../../../lib/supabase";
+import { withNormalizedPipelineState } from "../../../lib/pipelineState";
 
 export default function DollPublicPage() {
   const params = useParams();
@@ -67,7 +68,14 @@ export default function DollPublicPage() {
         return;
       }
 
-      setDoll(dollRow);
+      setDoll(
+        withNormalizedPipelineState(dollRow, {
+          timestamp:
+            (typeof dollRow?.created_at === "string" && dollRow.created_at.trim()) ||
+            (typeof dollRow?.updated_at === "string" && dollRow.updated_at.trim()) ||
+            undefined,
+        })
+      );
 
       const { data: stories } = await supabase
         .from("stories")
