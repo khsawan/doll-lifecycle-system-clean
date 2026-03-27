@@ -131,6 +131,86 @@ Readiness is a validation model. It is related to the pipeline, but it is not th
 - Product readiness describes whether the doll itself is operationally ready.
 - The system must keep these concerns separate.
 
+## Selected Doll Dashboard Model
+
+The selected-doll admin workspace now opens through a doll-specific dashboard entry model.
+
+- Each doll keeps one centered admin flow around that selected doll.
+- The dashboard is the entry point for choosing which operational workspace to open next.
+- From the dashboard, operators open either `Production Pipeline` or `Content Studio`.
+- Only one of these doll-specific workspaces is visible at a time.
+- Both workspaces remain inside the same doll-centered admin flow.
+
+## Admin Content Management Layer
+
+A lightweight content management layer now exists inside the selected-doll admin workspace.
+
+- It is opened through the doll-specific `Content Studio` workspace.
+- It is a management surface for content operations, not a replacement for the pipeline.
+- The pipeline remains the main control surface for production progression.
+- The `Production Pipeline` workspace preserves the existing unified workflow header, stage progression, and stage-driven operational views.
+- Build 1 adds a compact Content Overview Bar and Content Production Panel inside Content Studio.
+
+### Management Statuses
+
+The admin content management layer now tracks three management statuses for the selected doll:
+
+- `generation_status`: `not_started` or `generated`
+- `review_status`: `draft` or `approved`
+- `publish_status`: `hidden` or `live`
+
+### Build 1 Scope
+
+- Build 1 uses UI-level local state only for these management statuses.
+- Initial defaults are safely derived when missing.
+- `generation_status = not_started`
+- `review_status = draft`
+- `publish_status = hidden`
+- Asset completeness is currently UI-derived from hero image presence, story presence, and QR availability.
+- These statuses are persisted to the dolls table in Supabase. Values survive page reloads and are rehydrated on doll selection.
+- These statuses do not modify `pipeline_state`, `commerce_status`, QR generation logic, public doll route behavior, or CRM/order flow.
+- Phase B3 complete: generation_status, review_status, and publish_status are now structural fields on the dolls table with defaults of not_started, draft, and hidden respectively.
+
+### Build 2A Scope
+
+- `Generate Content` now creates deterministic local V1 content inside Content Studio.
+- The local generator derives content from doll identity inputs such as name, personality, world, and mood.
+- It generates:
+- `intro_script`
+- `story_pages` with four pages
+- `play_activity` with a prompt and three positive choice results
+- Generated content is injected into local UI state only.
+- `generation_status` is updated to `generated` when local generation runs.
+- No AI API, Supabase persistence, pipeline transition, QR behavior, commerce logic, or public-route behavior is changed by this generation step.
+
+### Build 2B Scope
+
+- Content Studio generation now also persists generated V1 content to the selected doll row in Supabase.
+- Persisted fields are:
+- `intro_script`
+- `story_pages`
+- `play_activity`
+- Local UI state still updates immediately before persistence completes.
+- When persisted generated V1 content exists, the admin rehydrates `generation_status` as `generated` for management-state coherence.
+- If persistence fails, locally generated content remains visible in the admin UI and the operator receives an error message.
+- This persistence step does not modify `pipeline_state`, QR behavior, commerce logic, CRM/order flow, or public doll route behavior.
+
+### Build 3 Scope
+
+- Content Studio `Generate Content` now uses the real AI generation layer through `/api/ai/generate`.
+- The Build 3 AI task returns a structured V1 content pack containing:
+- `intro_script`
+- `story_pages`
+- `play_activity`
+- AI generation is based on doll identity inputs such as name, personality, world or theme, and mood.
+- AI responses are normalized before use so the admin always receives exactly four story pages and three play choices in a safe structure.
+- If AI generation fails, the admin falls back to deterministic local V1 generation instead of breaking the UI.
+- Generated content still persists to the selected doll row using:
+- `intro_script`
+- `story_pages`
+- `play_activity`
+- This Build 3 flow does not modify `pipeline_state`, QR behavior, commerce logic, CRM/order flow, or public doll route architecture.
+
 ## UX Principles
 
 - Workflow-first UI: the interface should guide the operator through production progression, not just expose fields.
@@ -145,6 +225,9 @@ Readiness is a validation model. It is related to the pipeline, but it is not th
 - UI architecture is unified.
 - The pipeline is established as the main production control surface.
 - The Identity card has been introduced as a core summary element for the doll record.
+- The public child experience now has a V1 scene shell built around a `V1Experience` read model.
+- V1 public scenes are `Welcome`, `Story`, `Play`, and `Meet Friends`.
+- The public experience is separate from admin workflow logic and should not depend on `pipeline_state`, readiness, or commerce logic at render time.
 
 ## Future Phases
 
