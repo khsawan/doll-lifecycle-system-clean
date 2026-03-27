@@ -243,12 +243,17 @@ The admin content management layer now tracks three management statuses for the 
 - Public audio button shell (non-functional)
 - System ready for future audio playback integration
 
-### Phase D1 — Content Variation Engine (Next Phase)
+### Phase D1 — Content Variation Engine (Complete)
 
-- AI generation will return 2–3 variations instead of a single output
-- Operator selects best version instead of regenerating blindly
-- Reduces review time and improves content quality
-- No external dependencies required
+- AI generation now returns one or more variations (normalized into a variation array), typically 2–3 operator-selectable options for supported D1 tasks
+- Variations include `id`, `label`, and structured content fields
+- Admin UI allows operators to select preferred version before saving
+- Only selected version is persisted to Supabase
+- Legacy single-output responses are automatically normalized into one variation for backward compatibility
+- Applies to:
+- Story
+- Content Pack
+- Social
 
 ## Future Phases
 
