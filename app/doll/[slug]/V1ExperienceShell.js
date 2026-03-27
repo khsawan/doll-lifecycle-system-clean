@@ -579,6 +579,21 @@ export default function V1ExperienceShell({ experience }) {
           transform-origin: center center !important;
           will-change: transform !important;
         }
+
+        .shellSceneContentHost[data-scene-type="play"] > section > div button[type="button"] {
+          transition: transform 0.24s ease-out, box-shadow 0.24s ease-out;
+          will-change: transform, box-shadow;
+        }
+
+        @media (hover: hover) and (pointer: fine) {
+          .shellSceneContentHost[data-scene-type="play"]
+            > section
+            > div
+            button[type="button"]:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 18px 34px rgba(14, 165, 233, 0.16) !important;
+          }
+        }
       `}</style>
     </main>
   );
