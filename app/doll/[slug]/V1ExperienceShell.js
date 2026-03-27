@@ -400,7 +400,11 @@ export default function V1ExperienceShell({ experience }) {
         </div>
 
         <div style={sceneFrameStyle(isSceneVisible)}>
-          <div className="shellSceneContentHost" style={sceneMotionLayerStyle}>
+          <div
+            className="shellSceneContentHost"
+            data-scene-type={currentScene?.type || ""}
+            style={sceneMotionLayerStyle}
+          >
             <SceneRenderer
               scene={currentScene}
               experience={experience}
@@ -519,6 +523,20 @@ export default function V1ExperienceShell({ experience }) {
       `}</style>
 
       <style jsx global>{`
+        @keyframes shellHeroBreath {
+          0% {
+            transform: scale(1);
+          }
+
+          50% {
+            transform: scale(1.02);
+          }
+
+          100% {
+            transform: scale(1);
+          }
+        }
+
         .publicExperienceWrap > .ambientLayer {
           display: none;
         }
@@ -526,6 +544,16 @@ export default function V1ExperienceShell({ experience }) {
         .shellSceneContentHost > section > div {
           position: relative;
           z-index: 2;
+        }
+
+        .shellSceneContentHost[data-scene-type="welcome"]
+          > section
+          > div
+          > div:nth-child(2)
+          > div:has(> img) {
+          animation: shellHeroBreath 4.8s ease-in-out infinite !important;
+          transform-origin: center center !important;
+          will-change: transform !important;
         }
       `}</style>
     </main>
