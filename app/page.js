@@ -27,6 +27,42 @@ const DEFAULT_THEMES = [
 ];
 const STORY_TONES = ["Gentle", "Playful", "Magical"];
 const COMMERCE_STATUSES = Object.freeze(["draft", "ready_for_sale", "unavailable"]);
+const CONTENT_GENERATION_STATUSES = Object.freeze(["not_started", "generated"]);
+const CONTENT_REVIEW_STATUSES = Object.freeze(["draft", "approved"]);
+const CONTENT_PUBLISH_STATUSES = Object.freeze(["hidden", "live"]);
+const DEFAULT_CONTENT_MANAGEMENT_STATE = Object.freeze({
+  generation_status: "not_started",
+  review_status: "draft",
+  publish_status: "hidden",
+});
+const V1_PLAY_ACTIVITY_CHOICE_IDS = Object.freeze([
+  "comforting_object",
+  "playful_action",
+  "friendly_interaction",
+]);
+const OPERATIONS_PRODUCTION_QUEUE_BUCKET_ORDER = Object.freeze([
+  "needs_production_setup",
+  "needs_character_work",
+  "blocked_in_gateway",
+]);
+const OPERATIONS_CONTENT_QUEUE_BUCKET_ORDER = Object.freeze([
+  "needs_generation",
+  "needs_review",
+  "ready_to_publish",
+]);
+const OPERATIONS_BOARD_FILTERS = Object.freeze([
+  { value: "all", label: "All" },
+  { value: "needs_attention", label: "Needs Attention" },
+  { value: "production", label: "Production" },
+  { value: "content", label: "Content" },
+  { value: "live", label: "Live" },
+  { value: "archived", label: "Archived" },
+]);
+const OPERATIONS_BOARD_SORT_OPTIONS = Object.freeze([
+  { value: "urgency", label: "Urgency" },
+  { value: "last_updated", label: "Last Updated" },
+  { value: "name", label: "Name" },
+]);
 const PRODUCTION_STAGES = PIPELINE_STAGE_ORDER.map((stage, index) => ({
   key: stage,
   value: index + 1,
@@ -63,6 +99,45 @@ function normalizeLifecycleStatus(value) {
 function normalizeCommerceStatus(value) {
   const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
   return COMMERCE_STATUSES.includes(normalized) ? normalized : "draft";
+}
+
+function normalizeContentGenerationStatus(value) {
+  const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
+  return CONTENT_GENERATION_STATUSES.includes(normalized)
+    ? normalized
+    : DEFAULT_CONTENT_MANAGEMENT_STATE.generation_status;
+}
+
+function normalizeContentReviewStatus(value) {
+  const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
+  return CONTENT_REVIEW_STATUSES.includes(normalized)
+    ? normalized
+    : DEFAULT_CONTENT_MANAGEMENT_STATE.review_status;
+}
+
+function normalizeContentPublishStatus(value) {
+  const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
+  return CONTENT_PUBLISH_STATUSES.includes(normalized)
+    ? normalized
+    : DEFAULT_CONTENT_MANAGEMENT_STATE.publish_status;
+}
+
+function buildLocalContentManagementState(record = {}) {
+  const hasPersistedGeneratedContent = hasV1GeneratedContent({
+    intro_script: record?.intro_script,
+    story_pages: record?.story_pages,
+    play_activity: record?.play_activity,
+  });
+
+  return {
+    generation_status:
+      normalizeContentGenerationStatus(record?.generation_status) === "generated" ||
+      hasPersistedGeneratedContent
+        ? "generated"
+        : "not_started",
+    review_status: normalizeContentReviewStatus(record?.review_status),
+    publish_status: normalizeContentPublishStatus(record?.publish_status),
+  };
 }
 
 function slugify(value) {
@@ -311,6 +386,34 @@ function emptyStoryState() {
   };
 }
 
+function normalizeStoryVariationCandidate(value, index) {
+  const storyMain = typeof value?.story_main === "string" ? value.story_main.trim() : "";
+
+  if (!storyMain) {
+    return null;
+  }
+
+  const rawId = typeof value?.id === "string" ? value.id.trim() : "";
+  const rawLabel = typeof value?.label === "string" ? value.label.trim() : "";
+
+  return {
+    id: /^[a-z0-9_-]+$/i.test(rawId) ? rawId : `v${index + 1}`,
+    label: rawLabel || `Version ${index + 1}`,
+    story_main: storyMain,
+  };
+}
+
+function readStoryVariationCandidates(result) {
+  if (!Array.isArray(result?.variations)) {
+    return [];
+  }
+
+  return result.variations
+    .slice(0, 3)
+    .map((variation, index) => normalizeStoryVariationCandidate(variation, index))
+    .filter(Boolean);
+}
+
 function emptyContentPackState() {
   return {
     caption: "",
@@ -327,6 +430,109 @@ function emptyOrderState() {
     notes: "",
     order_status: "new",
   };
+}
+
+function emptyPlayActivityState() {
+  return {
+    prompt: "",
+    choices: [],
+  };
+}
+
+function emptyV1GeneratedContentState() {
+  return {
+    intro_script: "",
+    story_pages: ["", "", "", ""],
+    play_activity: emptyPlayActivityState(),
+  };
+}
+
+function buildEditablePlayActivityState(value = {}) {
+  const choices = Array.isArray(value?.choices) ? value.choices.slice(0, 3) : [];
+
+  while (choices.length < 3) {
+    choices.push({
+      id: V1_PLAY_ACTIVITY_CHOICE_IDS[choices.length] || `choice_${choices.length + 1}`,
+      label: "",
+      result_text: "",
+    });
+  }
+
+  return {
+    prompt: typeof value?.prompt === "string" ? value.prompt : "",
+    choices: choices.map((choice, index) => ({
+      id: choice?.id || V1_PLAY_ACTIVITY_CHOICE_IDS[index] || `choice_${index + 1}`,
+      label: typeof choice?.label === "string" ? choice.label : "",
+      result_text:
+        typeof choice?.result_text === "string"
+          ? choice.result_text
+          : typeof choice?.result === "string"
+            ? choice.result
+            : "",
+    })),
+  };
+}
+
+function emptyGeneratedContentEditorState() {
+  return {
+    intro_script: false,
+    story_pages: [false, false, false, false],
+    play_activity: false,
+  };
+}
+
+function hasPlayActivityChoiceContent(choices = []) {
+  return choices.some((choice) =>
+    Boolean(choice?.label?.trim() || choice?.result_text?.trim() || choice?.result?.trim())
+  );
+}
+
+function selectPrimaryPhrase(value, fallback) {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  if (!normalized) return fallback;
+  return normalized.split(",")[0].trim() || fallback;
+}
+
+function readTrimmedString(value, fallback = "") {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  return normalized || fallback;
+}
+
+function buildLocalV1GeneratedContentState(value = {}) {
+  const storyPages = Array.isArray(value.story_pages) ? value.story_pages.slice(0, 4) : [];
+
+  while (storyPages.length < 4) {
+    storyPages.push("");
+  }
+
+  return {
+    intro_script: value.intro_script || "",
+    story_pages: storyPages.map((page) => (typeof page === "string" ? page : "")),
+    play_activity: {
+      prompt: value?.play_activity?.prompt || "",
+      choices: Array.isArray(value?.play_activity?.choices)
+        ? value.play_activity.choices.slice(0, 3).map((choice, index) => ({
+            id:
+              choice?.id ||
+              V1_PLAY_ACTIVITY_CHOICE_IDS[index] ||
+              `choice_${index + 1}`,
+            label: choice?.label || "",
+            result_text: choice?.result_text || choice?.result || "",
+          }))
+        : [],
+    },
+  };
+}
+
+function hasV1GeneratedContent(value = {}) {
+  const normalized = buildLocalV1GeneratedContentState(value);
+
+  return Boolean(
+    normalized.intro_script.trim() ||
+      normalized.story_pages.some((page) => page.trim()) ||
+      normalized.play_activity.prompt.trim() ||
+      hasPlayActivityChoiceContent(normalized.play_activity.choices)
+  );
 }
 
 function buildStorySectionSnapshot(value = {}) {
@@ -439,6 +645,40 @@ function buildStoryPack(doll, tone) {
   };
 }
 
+function buildTemporaryDebugStoryVariationPayload(fallbackContent = "") {
+  // TEMP DEBUG LOGIC — remove after API-backed D1 validation is complete.
+  const baseStory =
+    typeof fallbackContent === "string" ? fallbackContent.trim() : "";
+
+  if (!baseStory) {
+    return {
+      variations: [],
+    };
+  }
+
+  const playfulVariation = baseStory.includes("By the end of each day")
+    ? baseStory.replace(
+        "By the end of each day",
+        "Before the day was done"
+      )
+    : `${baseStory} A little laugh and a warm hello made the whole moment feel brighter.`;
+
+  return {
+    variations: [
+      {
+        id: "v1",
+        label: "Gentle & calm",
+        story_main: baseStory,
+      },
+      {
+        id: "v2",
+        label: "Warm & playful",
+        story_main: playfulVariation,
+      },
+    ],
+  };
+}
+
 function buildContentPack(doll, storyData, publicBaseUrl) {
   const name = doll.name || "This doll";
   const theme = doll.theme_name || "Unassigned";
@@ -463,6 +703,395 @@ Discover ${name}'s world: ${publicDollUrl}
     blurb: `${name} is a handmade doll created to bring story, warmth, and imagination into everyday moments. ${hook}`,
     cta: `Discover ${name}'s world`,
   };
+}
+
+function generateV1ContentFromIdentity(doll = {}) {
+  const name = selectPrimaryPhrase(doll.name, "This doll");
+  const personality = selectPrimaryPhrase(doll.personality, "kind").toLowerCase();
+  const rawWorld = selectPrimaryPhrase(doll.world, "a gentle little world");
+  const world = rawWorld.toLowerCase() === "unassigned" ? "a gentle little world" : rawWorld;
+  const mood = selectPrimaryPhrase(doll.mood, "calm").toLowerCase();
+
+  return {
+    intro_script: `Hello, ${name}. Welcome to ${world}. Let's enjoy a gentle ${mood} moment together.`,
+    story_pages: [
+      `${name} arrives in ${world}. ${name} looks around with a ${personality} smile. Everything feels soft and welcoming.`,
+      `${name} feels a small ${mood} feeling inside. ${name} stays close to the good things nearby and takes a calm breath.`,
+      `${name} chooses one gentle action. ${name} offers a kind hello and helps the moment feel brighter for everyone.`,
+      `${name} ends the moment feeling safe and proud. ${world} feels warm, and ${name} is ready for the next little adventure.`,
+    ],
+    play_activity: {
+      prompt: `What should ${name} do?`,
+      choices: [
+        {
+          id: V1_PLAY_ACTIVITY_CHOICE_IDS[0],
+          label: "Hold a soft blanket",
+          result_text: `${name} holds a soft blanket and feels calm, cozy, and safe.`,
+        },
+        {
+          id: V1_PLAY_ACTIVITY_CHOICE_IDS[1],
+          label: "Do a little twirl",
+          result_text: `${name} does a little twirl and the ${mood} moment turns playful and bright.`,
+        },
+        {
+          id: V1_PLAY_ACTIVITY_CHOICE_IDS[2],
+          label: "Wave to a new friend",
+          result_text: `${name} waves to a new friend and ${world} feels even warmer.`,
+        },
+      ],
+    },
+  };
+}
+
+function mergeV1GeneratedContentWithFallback(value = {}, fallback = {}) {
+  const normalized = buildLocalV1GeneratedContentState(value);
+  const normalizedFallback = buildLocalV1GeneratedContentState(fallback);
+
+  return {
+    intro_script: readTrimmedString(
+      normalized.intro_script,
+      normalizedFallback.intro_script
+    ),
+    story_pages: normalizedFallback.story_pages.map((fallbackPage, index) =>
+      readTrimmedString(normalized.story_pages[index], fallbackPage)
+    ),
+    play_activity: {
+      prompt: readTrimmedString(
+        normalized.play_activity.prompt,
+        normalizedFallback.play_activity.prompt
+      ),
+      choices: normalizedFallback.play_activity.choices.map((fallbackChoice, index) => {
+        const nextChoice = normalized.play_activity.choices[index] || {};
+
+        return {
+          id:
+            nextChoice.id ||
+            fallbackChoice.id ||
+            V1_PLAY_ACTIVITY_CHOICE_IDS[index] ||
+            `choice_${index + 1}`,
+          label: readTrimmedString(nextChoice.label, fallbackChoice.label),
+          result_text: readTrimmedString(
+            nextChoice.result_text,
+            fallbackChoice.result_text
+          ),
+        };
+      }),
+    },
+  };
+}
+
+function deriveDollOperationsModel(doll = {}, contentManagementState) {
+  const normalizedContentManagementState =
+    contentManagementState || buildLocalContentManagementState(doll);
+  const normalizedPipelineRecord = withNormalizedPipelineState(doll, {
+    timestamp: getPipelineNormalizationTimestamp(doll),
+  });
+  const normalizedPipelineState = normalizedPipelineRecord?.pipelineState;
+  const currentOpenStage = normalizedPipelineState
+    ? getCurrentOpenPipelineStage(normalizedPipelineState)
+    : "registered";
+  const allPipelineStagesCompleted = PIPELINE_STAGE_ORDER.every(
+    (stage) => normalizedPipelineState?.[stage]?.status === "completed"
+  );
+  const hasGeneratedContent =
+    normalizedContentManagementState.generation_status === "generated" ||
+    hasV1GeneratedContent(doll);
+  const hasSlug = Boolean(typeof doll?.slug === "string" && doll.slug.trim());
+  const hasQrCode = Boolean(
+    typeof doll?.qr_code_url === "string" && doll.qr_code_url.trim()
+  );
+  const normalizedCommerceStatus = normalizeCommerceStatus(doll?.commerce_status);
+
+  let production_bucket = "needs_production_setup";
+
+  if (doll?.status === "archived") {
+    production_bucket = "archived";
+  } else if (currentOpenStage === "character") {
+    production_bucket = "needs_character_work";
+  } else if (currentOpenStage === "content") {
+    production_bucket = "ready_for_content_handoff";
+  } else if (currentOpenStage === "gateway") {
+    production_bucket = "blocked_in_gateway";
+  } else if (currentOpenStage === "ready" || allPipelineStagesCompleted) {
+    production_bucket = "production_complete";
+  } else {
+    production_bucket = "needs_production_setup";
+  }
+
+  let content_bucket = "waiting_for_content_stage";
+
+  if (doll?.status === "archived") {
+    content_bucket = "archived";
+  } else if (normalizedContentManagementState.publish_status === "live") {
+    content_bucket = "live";
+  } else if (
+    normalizedContentManagementState.review_status === "approved" &&
+    normalizedContentManagementState.publish_status !== "live"
+  ) {
+    content_bucket = "ready_to_publish";
+  } else if (hasGeneratedContent) {
+    content_bucket = "needs_review";
+  } else if (
+    [
+      "ready_for_content_handoff",
+      "blocked_in_gateway",
+      "production_complete",
+    ].includes(production_bucket)
+  ) {
+    content_bucket = "needs_generation";
+  } else {
+    content_bucket = "waiting_for_content_stage";
+  }
+
+  let attention_type = "none";
+
+  if (doll?.status === "archived") {
+    attention_type = "none";
+  } else if (
+    [
+      "needs_production_setup",
+      "needs_character_work",
+      "blocked_in_gateway",
+    ].includes(production_bucket)
+  ) {
+    attention_type = "production";
+  } else if (
+    ["needs_generation", "needs_review", "ready_to_publish"].includes(content_bucket)
+  ) {
+    attention_type = "content";
+  }
+
+  const recommended_workspace =
+    attention_type === "production"
+      ? "pipeline"
+      : attention_type === "content"
+        ? "content_studio"
+        : "dashboard";
+  const needs_attention = attention_type !== "none";
+
+  let next_action = "No action";
+  let recommended_workspace_reason =
+    "This doll has no active production or content work in V1.";
+
+  if (doll?.status === "archived") {
+    next_action = "Archived";
+    recommended_workspace_reason =
+      "Archived dolls stay outside the active triage queues.";
+  } else if (production_bucket === "needs_production_setup") {
+    next_action =
+      typeof doll?.image_url === "string" && doll.image_url.trim()
+        ? "Complete Production stage"
+        : "Add image in Production";
+    recommended_workspace_reason =
+      "Production prerequisites are not complete yet.";
+  } else if (production_bucket === "needs_character_work") {
+    next_action = "Complete Character stage";
+    recommended_workspace_reason =
+      "Character inputs are the current pipeline bottleneck.";
+  } else if (production_bucket === "blocked_in_gateway") {
+    if (!hasSlug) {
+      next_action = "Add public slug";
+    } else if (!hasQrCode) {
+      next_action = "Generate QR";
+    } else if (normalizedCommerceStatus !== "ready_for_sale") {
+      next_action = "Set commerce to Ready for Sale";
+    } else {
+      next_action = "Complete Gateway stage";
+    }
+    recommended_workspace_reason =
+      "The doll is waiting on digital activation or commerce readiness.";
+  } else if (content_bucket === "needs_generation") {
+    next_action = "Generate content";
+    recommended_workspace_reason =
+      "The pipeline is ready for content work, but no V1 generated content exists yet.";
+  } else if (content_bucket === "needs_review") {
+    next_action = "Review and approve content";
+    recommended_workspace_reason =
+      "Generated content exists but is still in draft review state.";
+  } else if (content_bucket === "ready_to_publish") {
+    next_action = "Publish content";
+    recommended_workspace_reason =
+      "Content has been approved and is waiting to go live.";
+  } else if (content_bucket === "live") {
+    next_action = "No action";
+    recommended_workspace_reason = "Content is already live.";
+  }
+
+  let urgency = "none";
+
+  if (
+    doll?.status === "archived" ||
+    attention_type === "none" ||
+    content_bucket === "live"
+  ) {
+    urgency = "none";
+  } else if (
+    production_bucket === "blocked_in_gateway" ||
+    content_bucket === "ready_to_publish"
+  ) {
+    urgency = "high";
+  } else if (
+    production_bucket === "needs_character_work" ||
+    content_bucket === "needs_review" ||
+    content_bucket === "needs_generation"
+  ) {
+    urgency = "medium";
+  } else if (
+    production_bucket === "needs_production_setup" ||
+    production_bucket === "ready_for_content_handoff"
+  ) {
+    urgency = "low";
+  }
+
+  return {
+    id: doll?.id || null,
+    internal_id: doll?.internal_id || "",
+    name: doll?.name || "Untitled doll",
+    theme_name: doll?.theme_name || "Unassigned",
+    attention_type,
+    production_bucket,
+    content_bucket,
+    next_action,
+    recommended_workspace,
+    recommended_workspace_reason,
+    needs_attention,
+    urgency,
+    updated_at:
+      (typeof doll?.updated_at === "string" && doll.updated_at.trim()) ||
+      (typeof doll?.created_at === "string" && doll.created_at.trim()) ||
+      "",
+  };
+}
+
+function compareOperationsCards(left, right) {
+  const urgencyWeights = {
+    high: 0,
+    medium: 1,
+    low: 2,
+    none: 3,
+  };
+  const leftUrgencyWeight = urgencyWeights[left?.urgency] ?? urgencyWeights.none;
+  const rightUrgencyWeight = urgencyWeights[right?.urgency] ?? urgencyWeights.none;
+  const urgencyDelta = leftUrgencyWeight - rightUrgencyWeight;
+
+  if (urgencyDelta !== 0) {
+    return urgencyDelta;
+  }
+
+  const leftTimestamp = Date.parse(left?.updated_at || "");
+  const rightTimestamp = Date.parse(right?.updated_at || "");
+  const leftHasTimestamp = Number.isFinite(leftTimestamp);
+  const rightHasTimestamp = Number.isFinite(rightTimestamp);
+
+  if (leftHasTimestamp && rightHasTimestamp && leftTimestamp !== rightTimestamp) {
+    return rightTimestamp - leftTimestamp;
+  }
+
+  if (leftHasTimestamp !== rightHasTimestamp) {
+    return leftHasTimestamp ? -1 : 1;
+  }
+
+  const nameDelta = (left?.name || "").localeCompare(right?.name || "");
+  if (nameDelta !== 0) {
+    return nameDelta;
+  }
+
+  return (left?.internal_id || "").localeCompare(right?.internal_id || "");
+}
+
+function operationsWorkspaceButtonLabel(workspace = "dashboard") {
+  if (workspace === "pipeline") return "Open Pipeline";
+  if (workspace === "content_studio") return "Open Content Studio";
+  return "Open Dashboard";
+}
+
+function matchesOperationsFilter(operation, filter = "all") {
+  if (!operation || typeof operation !== "object") {
+    return false;
+  }
+
+  if (filter === "needs_attention") {
+    return Boolean(operation.needs_attention);
+  }
+
+  if (filter === "production") {
+    return operation.attention_type === "production";
+  }
+
+  if (filter === "content") {
+    return operation.attention_type === "content";
+  }
+
+  if (filter === "live") {
+    return operation.content_bucket === "live";
+  }
+
+  if (filter === "archived") {
+    return (
+      operation.production_bucket === "archived" ||
+      operation.content_bucket === "archived"
+    );
+  }
+
+  return true;
+}
+
+function compareOperationsByLastUpdated(left, right) {
+  const leftTimestamp = Date.parse(left?.updated_at || "");
+  const rightTimestamp = Date.parse(right?.updated_at || "");
+  const leftHasTimestamp = Number.isFinite(leftTimestamp);
+  const rightHasTimestamp = Number.isFinite(rightTimestamp);
+
+  if (leftHasTimestamp && rightHasTimestamp && leftTimestamp !== rightTimestamp) {
+    return rightTimestamp - leftTimestamp;
+  }
+
+  if (leftHasTimestamp !== rightHasTimestamp) {
+    return leftHasTimestamp ? -1 : 1;
+  }
+
+  return compareOperationsByName(left, right);
+}
+
+function compareOperationsByName(left, right) {
+  const nameDelta = (left?.name || "").localeCompare(right?.name || "");
+  if (nameDelta !== 0) {
+    return nameDelta;
+  }
+
+  return (left?.internal_id || "").localeCompare(right?.internal_id || "");
+}
+
+function sortOperationsList(items, sortMode = "urgency") {
+  const nextItems = Array.isArray(items) ? [...items] : [];
+
+  if (sortMode === "last_updated") {
+    return nextItems.sort(compareOperationsByLastUpdated);
+  }
+
+  if (sortMode === "name") {
+    return nextItems.sort(compareOperationsByName);
+  }
+
+  return nextItems.sort(compareOperationsCards);
+}
+
+function operationsQueueEmptyStateText(queueType = "production", filter = "all") {
+  if (queueType === "production") {
+    return filter === "production"
+      ? "No dolls are waiting in Production right now. The production queue is clear."
+      : "No dolls currently need production attention. Operators can focus elsewhere for now.";
+  }
+
+  return filter === "content"
+    ? "No dolls are waiting in Content right now. The content queue is clear."
+    : "No dolls currently need content attention. Operators can focus elsewhere for now.";
+}
+
+function operationsPassiveEmptyStateText(filter = "live") {
+  return filter === "archived"
+    ? "No archived dolls are on record yet. Archived dolls will appear here as a read-only reference list."
+    : "No dolls are live yet. When content is marked live, those dolls will appear here for quick reference.";
 }
 
 function buildReadiness(identity, story, contentPack, order, publicUrl) {
@@ -537,7 +1166,10 @@ export default function Page() {
   const [story, setStory] = useState(emptyStoryState);
   const [storyGenerating, setStoryGenerating] = useState(false);
   const [storySaving, setStorySaving] = useState(false);
+  const [storyVariations, setStoryVariations] = useState([]);
+  const [selectedStoryVariationId, setSelectedStoryVariationId] = useState("");
   const [savedStorySnapshot, setSavedStorySnapshot] = useState(null);
+  const [managedContentGenerating, setManagedContentGenerating] = useState(false);
 
   const [contentPack, setContentPack] = useState(emptyContentPackState);
   const [contentPackGenerating, setContentPackGenerating] = useState(false);
@@ -548,6 +1180,7 @@ export default function Page() {
   const [socialGenerating, setSocialGenerating] = useState(false);
   const [socialSaving, setSocialSaving] = useState(false);
   const [savedSocialSnapshot, setSavedSocialSnapshot] = useState(null);
+  const [playActivity, setPlayActivity] = useState(emptyPlayActivityState);
 
   const [qrDataUrl, setQrDataUrl] = useState("");
   const [qrUploading, setQrUploading] = useState(false);
@@ -557,16 +1190,33 @@ export default function Page() {
   const [dangerLoading, setDangerLoading] = useState("");
   const printCardRef = useRef(null);
   const slugLockRef = useRef({ id: null, legacyLockedSlug: "" });
+  const pendingSelectedWorkspaceModeRef = useRef("");
 
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [activeDepartment, setActiveDepartment] = useState("");
   const [activeStageView, setActiveStageView] = useState("");
+  const [selectedWorkspaceMode, setSelectedWorkspaceMode] = useState("");
+  const [operationsFilter, setOperationsFilter] = useState("all");
+  const [operationsSort, setOperationsSort] = useState("urgency");
   const [commerceStatus, setCommerceStatus] = useState("draft");
   const [commerceSaving, setCommerceSaving] = useState(false);
   const [pipelineStageCompleting, setPipelineStageCompleting] = useState("");
   const [pipelineStageReopening, setPipelineStageReopening] = useState("");
   const [stageActionWarning, setStageActionWarning] = useState(null);
+  const [contentManagementByDoll, setContentManagementByDoll] = useState({});
+  const [generatedV1ContentByDoll, setGeneratedV1ContentByDoll] = useState({});
+  const [generatedContentEditState, setGeneratedContentEditState] = useState(
+    emptyGeneratedContentEditorState
+  );
+  const [generatedContentSavingState, setGeneratedContentSavingState] = useState(
+    emptyGeneratedContentEditorState
+  );
+  const [introScriptDraft, setIntroScriptDraft] = useState("");
+  const [storyPageDrafts, setStoryPageDrafts] = useState(["", "", "", ""]);
+  const [playActivityDraft, setPlayActivityDraft] = useState(() =>
+    buildEditablePlayActivityState()
+  );
 
   const selected = useMemo(
     () => dolls.find((d) => d.id === selectedId) || dolls[0] || null,
@@ -592,19 +1242,6 @@ export default function Page() {
   const publicPath = selectedSlug ? `/doll/${selectedSlug}` : "";
   const publicUrl = selectedSlug && publicBaseUrl ? `${publicBaseUrl}${publicPath}` : "";
   const readiness = buildReadiness(identity, story, contentPack, order, publicUrl);
-  const legacyLifecycleStatus = normalizeLifecycleStatus(selected?.status);
-  const rawProductionStage = selected?.production_stage;
-  const parsedProductionStage =
-    rawProductionStage === null || rawProductionStage === undefined || rawProductionStage === ""
-      ? NaN
-      : Number(rawProductionStage);
-  const effectiveProductionStage = Number.isFinite(parsedProductionStage)
-    ? parsedProductionStage
-    : legacyLifecycleStatus === "digital"
-      ? 4
-      : ["content", "sales"].includes(legacyLifecycleStatus)
-        ? 5
-        : 1;
   const legacySalesStatus = (selected?.sales_status || "").toLowerCase();
   const effectiveSalesStatus = legacySalesStatus || "not_sold";
   const legacyAvailabilityStatus = (selected?.availability_status || "").toLowerCase();
@@ -615,37 +1252,24 @@ export default function Page() {
       : selected?.qr_code_url
         ? "generated"
         : "not_generated";
-  const pipelineStageNumber = selected
-    ? Math.min(Math.max(Math.round(effectiveProductionStage || 1), 1), PRODUCTION_STAGES.length)
-    : 0;
-  const pipelineStageLabel =
-    PRODUCTION_STAGES.find((stage) => stage.value === pipelineStageNumber)?.label || "Not set";
   const selectedPipelineState = selected
     ? withNormalizedPipelineState(selected, {
         timestamp: getPipelineNormalizationTimestamp(selected),
       }).pipelineState
     : null;
-  const selectedPipelineProgressPercent = selected ? getPipelineProgressPercent(selected) : 0;
   const currentOpenPipelineStage = selectedPipelineState
     ? getCurrentOpenPipelineStage(selectedPipelineState)
     : null;
   const pipelineStageActionBusy = Boolean(pipelineStageCompleting || pipelineStageReopening);
-  const currentPipelineStageRecord =
-    PRODUCTION_STAGES.find((stage) => stage.value === pipelineStageNumber) || null;
-  const currentProductionPipelineState =
-    currentPipelineStageRecord?.key && selectedPipelineState?.[currentPipelineStageRecord.key]?.status
-      ? selectedPipelineState[currentPipelineStageRecord.key].status
-      : "locked";
   const currentWorkflowStageKey =
     currentOpenPipelineStage ||
     [...PIPELINE_STAGE_ORDER]
       .reverse()
       .find((stage) => selectedPipelineState?.[stage]?.status === "completed") ||
     "registered";
-  const currentWorkflowStageLabel =
-    PIPELINE_STAGE_LABELS[currentWorkflowStageKey] || pipelineStageLabel;
+  const currentWorkflowStageLabel = PIPELINE_STAGE_LABELS[currentWorkflowStageKey] || "Registered";
   const currentWorkflowStageStatus =
-    selectedPipelineState?.[currentWorkflowStageKey]?.status || currentProductionPipelineState;
+    selectedPipelineState?.[currentWorkflowStageKey]?.status || "locked";
   const dollIdentityThemeRaw =
     identity.theme_name?.trim() || selected?.theme_name?.trim() || "";
   const dollIdentityTheme =
@@ -847,12 +1471,6 @@ export default function Page() {
     { key: "digital", label: "Digital", state: selectedReadiness.digital },
     { key: "commercial", label: "Product Commerce", state: selectedReadiness.commercial },
   ];
-  const readinessCompleteCount = readinessOverviewItems.filter((item) => item.state.complete).length;
-  const readinessStatusLabel = selectedReadiness.overall
-    ? "Ready"
-    : readinessCompleteCount > 0
-      ? "In progress"
-      : "Not ready";
   const productionWorkflowComplete =
     selectedReadiness.production.complete &&
     selectedReadiness.character.complete &&
@@ -873,17 +1491,20 @@ export default function Page() {
   const currentStageView = selected
     ? activeStageView || "overview"
     : "";
+  const currentSelectedWorkspaceMode = selected
+    ? selectedWorkspaceMode || "dashboard"
+    : "";
   const globalWorkspaceNextStepMessage = (() => {
     if (!selectedReadiness.production.complete) {
       if (selectedReadiness.production.missing.includes("image_url")) {
         return "Next step: add the doll image in Production.";
       }
 
-      return "Next step: complete Production before advancing this doll.";
+      return "Next step: complete Production to keep the pipeline moving.";
     }
 
     if (!selectedReadiness.character.complete) {
-      return "Next step: complete Character before advancing to Content.";
+      return "Next step: complete Character to open Content.";
     }
 
     if (!selectedReadiness.content.complete) {
@@ -899,7 +1520,7 @@ export default function Page() {
         return "Next step: complete social content.";
       }
 
-      return "Next step: complete Content before advancing to Gateway.";
+      return "Next step: complete Content to open Gateway.";
     }
 
     if (!selectedReadiness.digital.complete) {
@@ -914,7 +1535,7 @@ export default function Page() {
       return "Next step: set Product Commerce Status to Ready for Sale.";
     }
 
-    return "All production stages are complete.";
+    return "All pipeline stages are complete.";
   })();
   const activeStageNextStepMessage = (() => {
     if (currentStageView === "registered" && !selectedReadiness.production.complete) {
@@ -1018,7 +1639,7 @@ export default function Page() {
       return {
         tone: selectedReadiness.overall ? "success" : "muted",
         message: selectedReadiness.overall
-          ? "All production stages are complete."
+          ? "All pipeline stages are complete."
           : globalWorkspaceNextStepMessage,
       };
     }
@@ -1028,10 +1649,10 @@ export default function Page() {
         tone: currentStageView === "ready" && selectedReadiness.overall ? "success" : "muted",
         message:
           currentStageView === "ready" && selectedReadiness.overall
-            ? "All production stages are complete."
+            ? "All pipeline stages are complete."
             : currentStageView === "gateway"
-              ? "This stage is completed - reopen to edit. CRM order tracking remains editable."
-              : "This stage is completed - reopen to edit.",
+              ? "This pipeline stage is completed - reopen to edit. CRM order tracking remains editable."
+              : "This pipeline stage is completed - reopen to edit.",
       };
     }
 
@@ -1040,8 +1661,8 @@ export default function Page() {
         tone: "warn",
         message:
           currentStageView === "gateway"
-            ? "This stage is locked - complete the previous stage to unlock it. CRM order tracking remains editable."
-            : "This stage is locked - complete the previous stage to unlock it.",
+            ? "This pipeline stage is locked - complete the previous pipeline stage to unlock it. CRM order tracking remains editable."
+            : "This pipeline stage is locked - complete the previous pipeline stage to unlock it.",
       };
     }
 
@@ -1049,7 +1670,7 @@ export default function Page() {
       return {
         tone: selectedReadiness.overall ? "success" : "muted",
         message: selectedReadiness.overall
-          ? "All production stages are complete."
+          ? "All pipeline stages are complete."
           : globalWorkspaceNextStepMessage,
       };
     }
@@ -1059,6 +1680,8 @@ export default function Page() {
       message: workspaceNextStepMessage,
     };
   })();
+  const showWorkflowGuidance =
+    currentStageView !== "overview" && currentStageView !== "ready";
   const workflowFeedback = error
     ? {
         tone: "error",
@@ -1076,6 +1699,340 @@ export default function Page() {
               "This doll is archived. Its digital identity and related records are preserved, but it is no longer part of the active lifecycle.",
           }
         : null;
+  const selectedContentManagement = useMemo(() => {
+    if (!selected) {
+      return DEFAULT_CONTENT_MANAGEMENT_STATE;
+    }
+
+    return contentManagementByDoll[selected.id] || buildLocalContentManagementState(selected);
+  }, [
+    contentManagementByDoll,
+    selected?.id,
+    selected?.generation_status,
+    selected?.review_status,
+    selected?.publish_status,
+  ]);
+  const hasContentPreview = Boolean(savedSlug || legacyLockedSlug);
+  const contentPreviewHref = hasContentPreview ? publicUrl || publicPath : "";
+  const contentAssetCompleteness = useMemo(() => {
+    const items = [
+      {
+        key: "hero_image",
+        label: "Hero image",
+        complete: Boolean((identity.image_url || selected?.image_url || "").trim()),
+      },
+      {
+        key: "story",
+        label: "Story",
+        complete: Boolean(
+          story.teaser?.trim() ||
+            story.mainStory?.trim() ||
+            story.mini1?.trim() ||
+            story.mini2?.trim() ||
+            (typeof selected?.story_main === "string" && selected.story_main.trim()) ||
+            (typeof selected?.story === "string" && selected.story.trim())
+        ),
+      },
+      {
+        key: "qr",
+        label: "QR",
+        complete: Boolean((qrDataUrl || selected?.qr_code_url || "").trim()),
+      },
+    ];
+    const completeCount = items.filter((item) => item.complete).length;
+
+    return {
+      items,
+      completeCount,
+      total: items.length,
+      percent: Math.round((completeCount / items.length) * 100),
+    };
+  }, [
+    identity.image_url,
+    qrDataUrl,
+    selected?.id,
+    selected?.image_url,
+    selected?.qr_code_url,
+    selected?.story,
+    selected?.story_main,
+    story.teaser,
+    story.mainStory,
+    story.mini1,
+    story.mini2,
+  ]);
+  const contentOverviewItems = [
+    {
+      key: "generation_status",
+      label: "Generation Status",
+      value: formatStatusToken(selectedContentManagement.generation_status),
+      meta:
+        selectedContentManagement.generation_status === "generated"
+          ? "Content generation marked complete"
+          : "Awaiting Build 1 generation",
+      tone: selectedContentManagement.generation_status === "generated" ? "success" : "neutral",
+    },
+    {
+      key: "review_status",
+      label: "Review Status",
+      value: formatStatusToken(selectedContentManagement.review_status),
+      meta:
+        selectedContentManagement.review_status === "approved"
+          ? "Approved in the management layer"
+          : "Draft review state",
+      tone: selectedContentManagement.review_status === "approved" ? "success" : "neutral",
+    },
+    {
+      key: "publish_status",
+      label: "Publish Status",
+      value: formatStatusToken(selectedContentManagement.publish_status),
+      meta:
+        selectedContentManagement.publish_status === "live"
+          ? "Marked live in Build 1"
+          : "Currently hidden",
+      tone: selectedContentManagement.publish_status === "live" ? "success" : "neutral",
+    },
+    {
+      key: "asset_completeness",
+      label: "Asset Completeness",
+      value: `${contentAssetCompleteness.percent}%`,
+      meta: `${contentAssetCompleteness.completeCount}/${contentAssetCompleteness.total} complete`,
+      tone:
+        contentAssetCompleteness.percent === 100
+          ? "success"
+          : contentAssetCompleteness.completeCount > 0
+            ? "warn"
+            : "neutral",
+    },
+  ];
+  const contentManagementNextStepGuidance = (() => {
+    if (selectedContentManagement.generation_status === "not_started") {
+      return "Next step: Generate content to start production";
+    }
+
+    if (
+      selectedContentManagement.generation_status === "generated" &&
+      selectedContentManagement.review_status === "draft"
+    ) {
+      return "Next step: Review and approve the generated content";
+    }
+
+    if (
+      selectedContentManagement.review_status === "approved" &&
+      selectedContentManagement.publish_status === "hidden"
+    ) {
+      return "Next step: Publish the doll to make it live";
+    }
+
+    return "";
+  })();
+  const selectedGeneratedV1Content = useMemo(() => {
+    if (!selected) {
+      return emptyV1GeneratedContentState();
+    }
+
+    if (generatedV1ContentByDoll[selected.id]) {
+      return buildLocalV1GeneratedContentState(generatedV1ContentByDoll[selected.id]);
+    }
+
+    if (hasV1GeneratedContent(selected)) {
+      return buildLocalV1GeneratedContentState({
+        intro_script: selected.intro_script,
+        story_pages: selected.story_pages,
+        play_activity: selected.play_activity,
+      });
+    }
+
+    return emptyV1GeneratedContentState();
+  }, [
+    generatedV1ContentByDoll,
+    selected?.id,
+    selected?.intro_script,
+    selected?.story_pages,
+    selected?.play_activity,
+  ]);
+  const contentManagementStateSummary = [
+    formatStatusToken(selectedContentManagement.generation_status),
+    formatStatusToken(selectedContentManagement.review_status),
+    formatStatusToken(selectedContentManagement.publish_status),
+  ].join(" / ");
+  const selectedEditablePlayActivity = useMemo(
+    () => buildEditablePlayActivityState(selectedGeneratedV1Content.play_activity),
+    [selectedGeneratedV1Content.play_activity]
+  );
+  const selectedHasPlayActivityChoices = useMemo(
+    () => hasPlayActivityChoiceContent(selectedGeneratedV1Content.play_activity.choices),
+    [selectedGeneratedV1Content.play_activity.choices]
+  );
+  const operationsByDoll = useMemo(() => {
+    const dollList = Array.isArray(dolls) ? dolls : [];
+
+    return dollList
+      .filter((doll) => Boolean(doll) && typeof doll === "object")
+      .map((doll) => {
+        try {
+          return deriveDollOperationsModel(
+            doll,
+            contentManagementByDoll?.[doll?.id]
+          );
+        } catch {
+          return deriveDollOperationsModel(
+            {
+              id: doll?.id || null,
+              internal_id: doll?.internal_id || "",
+              name: doll?.name || "Untitled doll",
+              theme_name: doll?.theme_name || "Unassigned",
+              status: doll?.status || "",
+              updated_at: doll?.updated_at || "",
+              created_at: doll?.created_at || "",
+            },
+            undefined
+          );
+        }
+      });
+  }, [dolls, contentManagementByDoll]);
+  const operationsSummaryItems = useMemo(
+    () => [
+      {
+        key: "total",
+        label: "Total Dolls",
+        value: operationsByDoll.length,
+      },
+      {
+        key: "production_attention",
+        label: "Production Attention",
+        value: operationsByDoll.filter(
+          (operation) => operation.attention_type === "production"
+        ).length,
+      },
+      {
+        key: "content_attention",
+        label: "Content Attention",
+        value: operationsByDoll.filter(
+          (operation) => operation.attention_type === "content"
+        ).length,
+      },
+      {
+        key: "ready_to_publish",
+        label: "Ready to Publish",
+        value: operationsByDoll.filter(
+          (operation) => operation.content_bucket === "ready_to_publish"
+        ).length,
+      },
+      {
+        key: "live",
+        label: "Live",
+        value: operationsByDoll.filter((operation) => operation.content_bucket === "live")
+          .length,
+      },
+    ],
+    [operationsByDoll]
+  );
+  const filteredOperationsByDoll = useMemo(
+    () =>
+      sortOperationsList(
+        operationsByDoll.filter(
+          (operation) =>
+            Boolean(operation) && matchesOperationsFilter(operation, operationsFilter)
+        ),
+        operationsSort
+      ),
+    [operationsByDoll, operationsFilter, operationsSort]
+  );
+  const productionQueueGroups = useMemo(() => {
+    const operationsList = Array.isArray(filteredOperationsByDoll)
+      ? filteredOperationsByDoll.filter(Boolean)
+      : [];
+
+    return OPERATIONS_PRODUCTION_QUEUE_BUCKET_ORDER.map((bucket) => ({
+      bucket,
+      items: sortOperationsList(
+        operationsList.filter(
+          (operation) =>
+            operation?.attention_type === "production" &&
+            operation?.production_bucket === bucket
+        ),
+        operationsSort
+      ),
+    })).filter((group) => group.items.length > 0);
+  }, [filteredOperationsByDoll, operationsSort]);
+  const contentQueueGroups = useMemo(() => {
+    const operationsList = Array.isArray(filteredOperationsByDoll)
+      ? filteredOperationsByDoll.filter(Boolean)
+      : [];
+
+    return OPERATIONS_CONTENT_QUEUE_BUCKET_ORDER.map((bucket) => ({
+      bucket,
+      items: sortOperationsList(
+        operationsList.filter(
+          (operation) =>
+            operation?.attention_type === "content" &&
+            operation?.content_bucket === bucket
+        ),
+        operationsSort
+      ),
+    })).filter((group) => group.items.length > 0);
+  }, [filteredOperationsByDoll, operationsSort]);
+  const dashboardRecommendedWorkspace =
+    !selectedReadiness.overall
+      ? "pipeline"
+      : contentManagementNextStepGuidance
+        ? "content_studio"
+        : "";
+  const dashboardRecommendedWorkspaceLabel =
+    dashboardRecommendedWorkspace === "pipeline"
+      ? "Open Production Pipeline"
+      : dashboardRecommendedWorkspace === "content_studio"
+        ? "Open Content Studio"
+        : "";
+  const dashboardNextStepMessage = !selectedReadiness.overall
+    ? globalWorkspaceNextStepMessage
+    : contentManagementNextStepGuidance || "Production and content are in a stable state.";
+  const selectedWorkspaceHeading =
+    currentSelectedWorkspaceMode === "pipeline"
+      ? "Production Pipeline"
+      : currentSelectedWorkspaceMode === "content_studio"
+        ? "Content Studio"
+        : "Selected Doll Dashboard";
+  const selectedWorkspaceSummary =
+    currentSelectedWorkspaceMode === "pipeline"
+      ? `Current workflow: ${currentWorkflowStageLabel} / ${dollIdentityWorkflowState}`
+      : currentSelectedWorkspaceMode === "content_studio"
+        ? `Content status: ${contentManagementStateSummary}`
+        : `Current workflow: ${currentWorkflowStageLabel} / ${dollIdentityWorkflowState}`;
+  const dashboardSummaryItems = [
+    {
+      key: "production",
+      label: "Production Pipeline",
+      value: selectedReadiness.overall ? "Ready" : dollIdentityWorkflowState,
+      meta: `Current focus: ${currentWorkflowStageLabel}`,
+      tone: selectedReadiness.overall ? "success" : "warn",
+    },
+    {
+      key: "content_management",
+      label: "Content Management",
+      value: formatStatusToken(selectedContentManagement.publish_status),
+      meta: contentManagementStateSummary,
+      tone:
+        selectedContentManagement.publish_status === "live"
+          ? "success"
+          : selectedContentManagement.review_status === "approved" ||
+              selectedContentManagement.generation_status === "generated"
+            ? "warn"
+            : "neutral",
+    },
+    {
+      key: "asset_completeness",
+      label: "Asset Completeness",
+      value: `${contentAssetCompleteness.percent}%`,
+      meta: `${contentAssetCompleteness.completeCount}/${contentAssetCompleteness.total} complete`,
+      tone:
+        contentAssetCompleteness.percent === 100
+          ? "success"
+          : contentAssetCompleteness.completeCount > 0
+            ? "warn"
+            : "neutral",
+    },
+  ];
   const currentStorySignature = sectionStateSignature(buildStorySectionSnapshot(story));
   const currentContentPackSignature = sectionStateSignature(buildContentPackSectionSnapshot(contentPack));
   const currentSocialSignature = sectionStateSignature(buildSocialSectionSnapshot(identity));
@@ -1173,6 +2130,27 @@ export default function Page() {
     };
   }
 
+  function buildManagedContentGenerationPayload() {
+    const basePayload = buildAIGenerationPayload("Gentle");
+    const themeName =
+      typeof basePayload.theme_name === "string" ? basePayload.theme_name.trim() : "";
+    const world =
+      basePayload.character_world?.trim() ||
+      (themeName && themeName.toLowerCase() !== "unassigned" ? themeName : "") ||
+      "a gentle little world";
+    const mood =
+      basePayload.expression_feel?.trim() ||
+      basePayload.emotional_hook?.trim() ||
+      "calm";
+
+    return {
+      ...basePayload,
+      personality: basePayload.personality_traits || "",
+      world,
+      mood,
+    };
+  }
+
   async function loadThemes() {
     if (!supabase) return;
 
@@ -1220,6 +2198,18 @@ export default function Page() {
     setError("");
 
     const doll = dolls.find((d) => d.id === dollId);
+    const localGeneratedV1Content = generatedV1ContentByDoll[dollId]
+      ? buildLocalV1GeneratedContentState(generatedV1ContentByDoll[dollId])
+      : null;
+    const persistedGeneratedV1Content =
+      doll && hasV1GeneratedContent(doll)
+        ? buildLocalV1GeneratedContentState({
+            intro_script: doll.intro_script,
+            story_pages: doll.story_pages,
+            play_activity: doll.play_activity,
+          })
+        : null;
+    const activeGeneratedV1Content = localGeneratedV1Content || persistedGeneratedV1Content;
 
     if (doll) {
       setCommerceStatus(normalizeCommerceStatus(doll.commerce_status));
@@ -1232,7 +2222,7 @@ export default function Page() {
         social_caption: doll.social_caption || "",
         social_cta: doll.social_cta || "",
         social_status: doll.social_status || "draft",
-        short_intro: doll.short_intro || "",
+        short_intro: activeGeneratedV1Content?.intro_script || doll.short_intro || "",
         image_url: doll.image_url || "",
         color_palette: doll.color_palette || "",
         notable_features: doll.notable_features || "",
@@ -1267,15 +2257,24 @@ export default function Page() {
     const mainStory = (stories || []).find((s) => s.type === "main")?.content || "";
     const minis = (stories || []).filter((s) => s.type === "mini");
 
-    const nextStory = {
+    const persistedStory = {
       teaser,
       mainStory,
       mini1: minis[0]?.content || "",
       mini2: minis[1]?.content || "",
     };
 
+    const nextStory = {
+      teaser: activeGeneratedV1Content?.story_pages?.[0] || persistedStory.teaser,
+      mainStory: activeGeneratedV1Content?.story_pages?.[1] || persistedStory.mainStory,
+      mini1: activeGeneratedV1Content?.story_pages?.[2] || persistedStory.mini1,
+      mini2: activeGeneratedV1Content?.story_pages?.[3] || persistedStory.mini2,
+    };
+
     setStory(nextStory);
-    setSavedStorySnapshot((stories || []).length ? buildStorySectionSnapshot(nextStory) : null);
+    setSavedStorySnapshot(
+      (stories || []).length ? buildStorySectionSnapshot(persistedStory) : null
+    );
 
     const { data: contentRows } = await supabase
       .from("content_assets")
@@ -1319,6 +2318,12 @@ export default function Page() {
         order_status: "new",
       });
     }
+
+    setPlayActivity(
+      activeGeneratedV1Content?.play_activity
+        ? activeGeneratedV1Content.play_activity
+        : emptyPlayActivityState()
+    );
   }
 
   useEffect(() => {
@@ -1351,6 +2356,9 @@ export default function Page() {
     setDangerAction(null);
     setDangerConfirmText("");
     setDangerLoading("");
+    setPlayActivity(emptyPlayActivityState());
+    setStoryVariations([]);
+    setSelectedStoryVariationId("");
     setStorySaving(false);
     setContentPackGenerating(false);
     setContentPackSaving(false);
@@ -1360,6 +2368,11 @@ export default function Page() {
     setPipelineStageCompleting("");
     setPipelineStageReopening("");
     setStageActionWarning(null);
+    setGeneratedContentEditState(emptyGeneratedContentEditorState());
+    setGeneratedContentSavingState(emptyGeneratedContentEditorState());
+    setIntroScriptDraft("");
+    setStoryPageDrafts(["", "", "", ""]);
+    setPlayActivityDraft(buildEditablePlayActivityState());
   }, [selectedId]);
 
   useEffect(() => {
@@ -1369,6 +2382,60 @@ export default function Page() {
   useEffect(() => {
     setActiveStageView(selected ? "overview" : "");
   }, [selected?.id]);
+
+  useEffect(() => {
+    if (!selected) {
+      pendingSelectedWorkspaceModeRef.current = "";
+      setSelectedWorkspaceMode("");
+      return;
+    }
+
+    const nextWorkspace = pendingSelectedWorkspaceModeRef.current || "dashboard";
+    setSelectedWorkspaceMode(nextWorkspace);
+    pendingSelectedWorkspaceModeRef.current = "";
+  }, [selected?.id]);
+
+  useEffect(() => {
+    if (!selected?.id) {
+      return;
+    }
+
+    const derivedContentManagementState = buildLocalContentManagementState(selected);
+
+    setContentManagementByDoll((prev) => {
+      const existingState = prev[selected.id];
+
+      if (!existingState) {
+        return {
+          ...prev,
+          [selected.id]: derivedContentManagementState,
+        };
+      }
+
+      if (
+        existingState.generation_status === "generated" ||
+        derivedContentManagementState.generation_status !== "generated"
+      ) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        [selected.id]: {
+          ...existingState,
+          generation_status: "generated",
+        },
+      };
+    });
+  }, [
+    selected?.id,
+    selected?.generation_status,
+    selected?.review_status,
+    selected?.publish_status,
+    selected?.intro_script,
+    selected?.story_pages,
+    selected?.play_activity,
+  ]);
 
   function handleLogin(event) {
     event.preventDefault();
@@ -1393,6 +2460,430 @@ export default function Page() {
   function handleLogout() {
     window.localStorage.removeItem(ADMIN_AUTH_STORAGE_KEY);
     window.location.reload();
+  }
+
+  function openDollWorkspace(dollId, workspace = "dashboard") {
+    const normalizedWorkspace = ["pipeline", "content_studio", "dashboard"].includes(
+      workspace
+    )
+      ? workspace
+      : "dashboard";
+
+    if (!dollId) {
+      return;
+    }
+
+    pendingSelectedWorkspaceModeRef.current = normalizedWorkspace;
+
+    if (selected?.id === dollId) {
+      setSelectedWorkspaceMode(normalizedWorkspace);
+      pendingSelectedWorkspaceModeRef.current = "";
+      return;
+    }
+
+    setSelectedId(dollId);
+  }
+
+  async function updateSelectedContentManagement(patch) {
+    if (!selected?.id) return;
+
+    // Update local state immediately
+    setContentManagementByDoll((prev) => ({
+      ...prev,
+      [selected.id]: {
+        ...selectedContentManagement,
+        ...patch,
+      },
+    }));
+
+    // Persist to Supabase
+    if (!supabase) return;
+
+    const { error: saveError } = await supabase
+      .from("dolls")
+      .update(patch)
+      .eq("id", selected.id);
+
+    if (saveError) {
+      setError(
+        `Content status updated locally but could not be saved. ${saveError.message}`
+      );
+    }
+  }
+
+  function applyManagedGeneratedContent(generatedContent) {
+    if (!selected?.id) {
+      return;
+    }
+
+    setGeneratedV1ContentByDoll((prev) => ({
+      ...prev,
+      [selected.id]: generatedContent,
+    }));
+    setIdentity((prev) => ({
+      ...prev,
+      short_intro: generatedContent.intro_script,
+    }));
+    setStory({
+      teaser: generatedContent.story_pages[0],
+      mainStory: generatedContent.story_pages[1],
+      mini1: generatedContent.story_pages[2],
+      mini2: generatedContent.story_pages[3],
+    });
+    setPlayActivity(generatedContent.play_activity);
+    updateSelectedContentManagement({ generation_status: "generated" });
+  }
+
+  function setGeneratedStoryPageEditState(pageIndex, isEditing) {
+    setGeneratedContentEditState((prev) => ({
+      ...prev,
+      story_pages: prev.story_pages.map((value, index) =>
+        index === pageIndex ? isEditing : value
+      ),
+    }));
+  }
+
+  function setGeneratedStoryPageSavingState(pageIndex, isSaving) {
+    setGeneratedContentSavingState((prev) => ({
+      ...prev,
+      story_pages: prev.story_pages.map((value, index) =>
+        index === pageIndex ? isSaving : value
+      ),
+    }));
+  }
+
+  function startIntroScriptEditing() {
+    setError("");
+    setNotice("");
+    setIntroScriptDraft(selectedGeneratedV1Content.intro_script);
+    setGeneratedContentEditState((prev) => ({
+      ...prev,
+      intro_script: true,
+    }));
+  }
+
+  function cancelIntroScriptEditing() {
+    setIntroScriptDraft(selectedGeneratedV1Content.intro_script);
+    setGeneratedContentEditState((prev) => ({
+      ...prev,
+      intro_script: false,
+    }));
+  }
+
+  function startStoryPageEditing(pageIndex) {
+    setError("");
+    setNotice("");
+    setStoryPageDrafts((prev) => {
+      const nextDrafts = [...prev];
+      nextDrafts[pageIndex] = selectedGeneratedV1Content.story_pages[pageIndex] || "";
+      return nextDrafts;
+    });
+    setGeneratedStoryPageEditState(pageIndex, true);
+  }
+
+  function cancelStoryPageEditing(pageIndex) {
+    setStoryPageDrafts((prev) => {
+      const nextDrafts = [...prev];
+      nextDrafts[pageIndex] = selectedGeneratedV1Content.story_pages[pageIndex] || "";
+      return nextDrafts;
+    });
+    setGeneratedStoryPageEditState(pageIndex, false);
+  }
+
+  function startPlayActivityEditing() {
+    setError("");
+    setNotice("");
+    setPlayActivityDraft(buildEditablePlayActivityState(selectedGeneratedV1Content.play_activity));
+    setGeneratedContentEditState((prev) => ({
+      ...prev,
+      play_activity: true,
+    }));
+  }
+
+  function cancelPlayActivityEditing() {
+    setPlayActivityDraft(buildEditablePlayActivityState(selectedGeneratedV1Content.play_activity));
+    setGeneratedContentEditState((prev) => ({
+      ...prev,
+      play_activity: false,
+    }));
+  }
+
+  function buildNextGeneratedContent(patch = {}) {
+    return buildLocalV1GeneratedContentState({
+      intro_script: selectedGeneratedV1Content.intro_script,
+      story_pages: selectedGeneratedV1Content.story_pages,
+      play_activity: selectedGeneratedV1Content.play_activity,
+      ...patch,
+    });
+  }
+
+  async function saveGeneratedContentPatch(patch, nextGeneratedContent, successMessage) {
+    if (!selected?.id) {
+      return false;
+    }
+
+    if (!supabase) {
+      setNotice("");
+      setError("Supabase environment variables are missing.");
+      return false;
+    }
+
+    setError("");
+    setNotice("");
+
+    const { error: saveError } = await supabase
+      .from("dolls")
+      .update(patch)
+      .eq("id", selected.id);
+
+    if (saveError) {
+      setError(saveError.message);
+      return false;
+    }
+
+    applyManagedGeneratedContent(nextGeneratedContent);
+    setDolls((prev) =>
+      prev.map((d) =>
+        d.id === selected.id
+          ? {
+              ...d,
+              ...patch,
+            }
+          : d
+      )
+    );
+    setNotice(successMessage);
+    return true;
+  }
+
+  async function saveIntroScriptEdit() {
+    const nextGeneratedContent = buildNextGeneratedContent({
+      intro_script: introScriptDraft,
+    });
+
+    setGeneratedContentSavingState((prev) => ({
+      ...prev,
+      intro_script: true,
+    }));
+
+    try {
+      const saved = await saveGeneratedContentPatch(
+        { intro_script: nextGeneratedContent.intro_script },
+        nextGeneratedContent,
+        "Intro script saved."
+      );
+
+      if (saved) {
+        setGeneratedContentEditState((prev) => ({
+          ...prev,
+          intro_script: false,
+        }));
+      }
+    } finally {
+      setGeneratedContentSavingState((prev) => ({
+        ...prev,
+        intro_script: false,
+      }));
+    }
+  }
+
+  async function saveStoryPageEdit(pageIndex) {
+    const nextStoryPages = selectedGeneratedV1Content.story_pages.map((page, index) =>
+      index === pageIndex ? storyPageDrafts[pageIndex] || "" : page
+    );
+    const nextGeneratedContent = buildNextGeneratedContent({
+      story_pages: nextStoryPages,
+    });
+
+    setGeneratedStoryPageSavingState(pageIndex, true);
+
+    try {
+      const saved = await saveGeneratedContentPatch(
+        { story_pages: nextGeneratedContent.story_pages },
+        nextGeneratedContent,
+        `Story page ${pageIndex + 1} saved.`
+      );
+
+      if (saved) {
+        setGeneratedStoryPageEditState(pageIndex, false);
+      }
+    } finally {
+      setGeneratedStoryPageSavingState(pageIndex, false);
+    }
+  }
+
+  async function savePlayActivityEdit() {
+    const nextPlayActivity = buildEditablePlayActivityState(playActivityDraft);
+    const nextGeneratedContent = buildNextGeneratedContent({
+      play_activity: nextPlayActivity,
+    });
+
+    setGeneratedContentSavingState((prev) => ({
+      ...prev,
+      play_activity: true,
+    }));
+
+    try {
+      const saved = await saveGeneratedContentPatch(
+        { play_activity: nextPlayActivity },
+        nextGeneratedContent,
+        "Play activity saved."
+      );
+
+      if (saved) {
+        setGeneratedContentEditState((prev) => ({
+          ...prev,
+          play_activity: false,
+        }));
+      }
+    } finally {
+      setGeneratedContentSavingState((prev) => ({
+        ...prev,
+        play_activity: false,
+      }));
+    }
+  }
+
+  async function handleGenerateManagedContent() {
+    if (!selected?.id) {
+      return;
+    }
+
+    setError("");
+    setNotice("");
+    setManagedContentGenerating(true);
+
+    const generationPayload = buildManagedContentGenerationPayload();
+    const fallbackGeneratedContent = generateV1ContentFromIdentity({
+      name: generationPayload.name,
+      personality: generationPayload.personality,
+      world: generationPayload.world,
+      mood: generationPayload.mood,
+    });
+
+    let generatedContent = fallbackGeneratedContent;
+    let usedFallback = false;
+    let fallbackReason = "";
+
+    try {
+      try {
+        const response = await fetch("/api/ai/generate", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            provider: "anthropic",
+            task: "v1_content",
+            payload: generationPayload,
+          }),
+        });
+
+        const data = await response.json().catch(() => null);
+
+        if (!response.ok || !data?.ok) {
+          throw new Error(data?.error || "Failed to generate content with AI.");
+        }
+
+        generatedContent = mergeV1GeneratedContentWithFallback(
+          data?.result || {},
+          fallbackGeneratedContent
+        );
+      } catch (err) {
+        usedFallback = true;
+        fallbackReason = err?.message || "Failed to generate content with AI.";
+        generatedContent = fallbackGeneratedContent;
+      }
+
+      applyManagedGeneratedContent(generatedContent);
+
+      if (!supabase) {
+        setError(
+          usedFallback
+            ? `${fallbackReason} Deterministic local content was used instead, but Supabase is not configured.`
+            : "Generated content is visible locally, but Supabase is not configured."
+        );
+        return;
+      }
+
+      const generatedContentPatch = {
+        intro_script: generatedContent.intro_script,
+        story_pages: generatedContent.story_pages,
+        play_activity: generatedContent.play_activity,
+      };
+      const { error: saveError } = await supabase
+        .from("dolls")
+        .update(generatedContentPatch)
+        .eq("id", selected.id);
+
+      if (saveError) {
+        setError(
+          usedFallback
+            ? `${fallbackReason} Deterministic local content was used instead, but it could not be saved. ${saveError.message}`
+            : `Generated content is visible locally, but could not be saved. ${saveError.message}`
+        );
+        return;
+      }
+
+      setDolls((prev) =>
+        prev.map((d) =>
+          d.id === selected.id
+            ? {
+                ...d,
+                ...generatedContentPatch,
+              }
+            : d
+        )
+      );
+      setNotice(
+        usedFallback
+          ? "AI generation failed. Deterministic local content was used instead and saved to this doll."
+          : "V1 content generated with AI and saved to this doll."
+      );
+    } finally {
+      setManagedContentGenerating(false);
+    }
+  }
+
+  function handlePreviewManagedContent() {
+    if (!contentPreviewHref) {
+      setNotice("");
+      setError("No public preview route is available for this doll.");
+      return;
+    }
+
+    setError("");
+    window.open(contentPreviewHref, "_blank", "noopener,noreferrer");
+  }
+
+  async function handleApproveManagedContent() {
+    if (selectedContentManagement.generation_status !== "generated") {
+      return;
+    }
+
+    setError("");
+    await updateSelectedContentManagement({ review_status: "approved" });
+    setNotice("Content approved in the management layer.");
+  }
+
+  async function handlePublishManagedContent() {
+    if (selectedContentManagement.review_status !== "approved") {
+      return;
+    }
+
+    setError("");
+    await updateSelectedContentManagement({ publish_status: "live" });
+    setNotice("Content marked live in the management layer.");
+  }
+
+  async function handleUnpublishManagedContent() {
+    if (selectedContentManagement.publish_status !== "live") {
+      return;
+    }
+
+    setError("");
+    await updateSelectedContentManagement({ publish_status: "hidden" });
+    setNotice("Content hidden in the management layer.");
   }
 
   if (!authChecked) {
@@ -1627,6 +3118,20 @@ export default function Page() {
     setStorySaving(false);
   }
 
+  function applyStoryVariationToEditor(variation, nextPack = null) {
+    if (!variation?.story_main) {
+      return;
+    }
+
+    setSelectedStoryVariationId(variation.id || "");
+    setStory((prev) => ({
+      teaser: nextPack?.teaser ?? prev.teaser,
+      mainStory: variation.story_main,
+      mini1: nextPack?.mini1 ?? prev.mini1,
+      mini2: nextPack?.mini2 ?? prev.mini2,
+    }));
+  }
+
   async function applyTone(tone) {
     setStoryTone(tone);
     if (!selected) return;
@@ -1657,30 +3162,61 @@ export default function Page() {
         throw new Error(data?.error || "Failed to generate story.");
       }
 
+      const nextStoryVariations = readStoryVariationCandidates(data?.result);
+      console.log("DEBUG STORY VARIATIONS AFTER GENERATION", nextStoryVariations);
       const generatedMainStory =
-        typeof data?.result?.story_main === "string"
+        nextStoryVariations[0]?.story_main ||
+        (typeof data?.result?.story_main === "string"
           ? data.result.story_main.trim()
-          : "";
+          : "");
 
       if (!generatedMainStory) {
         throw new Error("Story generation returned an empty result.");
       }
 
-      setStory({
-        teaser: pack.teaser,
-        mainStory: generatedMainStory,
-        mini1: pack.mini1,
-        mini2: pack.mini2,
-      });
+      if (nextStoryVariations.length >= 1) {
+        setStoryVariations(nextStoryVariations);
+        applyStoryVariationToEditor(nextStoryVariations[0], pack);
+      } else {
+        setStoryVariations([]);
+        setSelectedStoryVariationId("");
+        setStory({
+          teaser: pack.teaser,
+          mainStory: generatedMainStory,
+          mini1: pack.mini1,
+          mini2: pack.mini2,
+        });
+      }
 
       setNotice(`${tone} story pack generated.`);
     } catch (err) {
-      setError(err?.message || "Failed to generate story.");
+      // TEMP DEBUG LOGIC — remove after API-backed D1 validation is complete.
+      const debugStoryVariationPayload = buildTemporaryDebugStoryVariationPayload(
+        pack.mainStory
+      );
+      const debugStoryVariations = readStoryVariationCandidates(
+        debugStoryVariationPayload
+      );
+      console.log("DEBUG STORY VARIATIONS AFTER GENERATION", debugStoryVariations);
+
+      if (debugStoryVariations.length >= 1) {
+        console.log("VARIATIONS SET:", debugStoryVariations);
+        setStoryVariations(debugStoryVariations);
+        setSelectedStoryVariationId("");
+        setError(
+          `${err?.message || "Failed to generate story."} Using temporary local story variations for D1 validation.`
+        );
+      } else {
+        setError(err?.message || "Failed to generate story.");
+      }
     } finally {
       setStoryGenerating(false);
     }
   }
 
+  /*
+  Legacy progression control disabled.
+  Workflow progression is frozen to pipeline_state stage actions only.
   async function advanceStage() {
     if (!selected) return;
 
@@ -1718,6 +3254,7 @@ export default function Page() {
 
     setNotice(`Advanced production stage to ${nextStage.value} - ${nextStage.label}.`);
   }
+  */
 
   async function completePipelineStage(stage) {
     if (!selected) return;
@@ -1858,18 +3395,7 @@ export default function Page() {
   }
 
   function generateDraft() {
-    if (!selected) return;
-
-    const pack = buildStoryPack({ ...selected, ...identity }, storyTone);
-
-    setStory({
-      teaser: pack.teaser,
-      mainStory: pack.mainStory,
-      mini1: pack.mini1,
-      mini2: pack.mini2,
-    });
-
-    setNotice("Draft generated.");
+    handleGenerateManagedContent();
   }
 
   async function activateDigitalLayer() {
@@ -2538,12 +4064,6 @@ export default function Page() {
     }
   }
 
-  const metrics = {
-    total: dolls.length,
-    commerce: dolls.filter((d) => normalizeLifecycleStatus(d.status) === "sales").length,
-    available: dolls.filter((d) => d.availability_status === "available").length,
-    sold: dolls.filter((d) => d.sales_status === "sold").length,
-  };
   const productionDepartmentContent = (
     <div style={{ marginTop: 14, display: "grid", gap: 20 }}>
       <fieldset
@@ -2761,6 +4281,11 @@ export default function Page() {
       </fieldset>
     </div>
   );
+  // TEMP DEBUG LOGIC — remove after API-backed D1 validation is complete.
+  if (typeof window !== "undefined") {
+    console.log("DEBUG STORY VARIATIONS AT RENDER", storyVariations);
+  }
+
   const contentDepartmentContent = (
     <div style={{ marginTop: 24, display: "grid", gap: 20 }}>
       <fieldset
@@ -2823,6 +4348,90 @@ export default function Page() {
           </div>
         </div>
 
+        {/* TEMP DEBUG LOGIC — remove after API-backed D1 validation is complete. */}
+        <div
+          style={storyVariationDebugStatusStyle(
+            storyVariations && storyVariations.length > 0
+          )}
+        >
+          DEBUG variation state:{" "}
+          {storyVariations && storyVariations.length > 0
+            ? `populated (${storyVariations.length})`
+            : "empty"}
+        </div>
+
+        {/* TEMP DEBUG LOGIC — remove after API-backed D1 validation is complete. */}
+        {storyVariations && storyVariations.length > 0 ? (
+          <div style={storyVariationDebugPanelStyle}>
+            <div style={storyVariationDebugTitleStyle}>DEBUG STORY VARIATIONS</div>
+            <div style={storyVariationDebugMetaStyle}>
+              Variation count: {storyVariations.length}
+            </div>
+
+            <div style={storyVariationDebugGridStyle}>
+              {storyVariations.map((variation) => {
+                const previewText =
+                  variation.story_main.length > 120
+                    ? `${variation.story_main.slice(0, 120)}...`
+                    : variation.story_main;
+
+                return (
+                  <div key={`debug-${variation.id}`} style={storyVariationDebugCardStyle}>
+                    <div style={storyVariationDebugLabelStyle}>{variation.label}</div>
+                    <div style={storyVariationDebugPreviewStyle}>{previewText}</div>
+                    <button
+                      onClick={() => applyStoryVariationToEditor(variation)}
+                      style={storyVariationDebugActionStyle}
+                    >
+                      USE DEBUG VERSION
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
+
+        {storyVariations && storyVariations.length > 0 ? (
+          <div style={storyVariationPanelStyle}>
+            <div style={storyVariationPanelHeaderStyle}>
+              <div>
+                <div style={storyVariationPanelTitleStyle}>Story candidates</div>
+                <div style={storyVariationPanelHintStyle}>
+                  Choose the version to place in the Main story field. Saving still happens only when you click Save Story.
+                </div>
+              </div>
+            </div>
+
+            <div style={storyVariationGridStyle}>
+              {storyVariations.map((variation) => {
+                const isSelected = selectedStoryVariationId === variation.id;
+
+                return (
+                  <div key={variation.id} style={storyVariationCardStyle(isSelected)}>
+                    <div style={storyVariationCardHeaderStyle}>
+                      <div style={storyVariationCardLabelStyle}>{variation.label}</div>
+                      <div style={storyVariationBadgeStyle(isSelected)}>
+                        {isSelected ? "In editor" : variation.id.toUpperCase()}
+                      </div>
+                    </div>
+
+                    <p style={storyVariationPreviewStyle}>{variation.story_main}</p>
+
+                    <button
+                      onClick={() => applyStoryVariationToEditor(variation)}
+                      style={storyVariationActionStyle(isSelected)}
+                      disabled={isSelected}
+                    >
+                      {isSelected ? "Using this version" : "Use this version"}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
+
         <div>
           <label style={labelStyle}>Card teaser</label>
           <textarea value={story.teaser} onChange={(e) => setStory({ ...story, teaser: e.target.value })} style={{ ...inputStyle, minHeight: 120 }} />
@@ -2830,7 +4439,14 @@ export default function Page() {
 
         <div style={{ marginTop: 16 }}>
           <label style={labelStyle}>Main story</label>
-          <textarea value={story.mainStory} onChange={(e) => setStory({ ...story, mainStory: e.target.value })} style={{ ...inputStyle, minHeight: 120 }} />
+          <textarea
+            value={story.mainStory}
+            onChange={(e) => {
+              setSelectedStoryVariationId("");
+              setStory({ ...story, mainStory: e.target.value });
+            }}
+            style={{ ...inputStyle, minHeight: 120 }}
+          />
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 16 }}>
@@ -3433,11 +5049,6 @@ export default function Page() {
             value: formatStatusToken(effectiveAccessStatus),
             tone: effectiveAccessStatus === "generated" ? "success" : "warn",
           },
-          {
-            label: "Readiness",
-            value: readinessStatusLabel,
-            tone: selectedReadiness.overall ? "success" : "warn",
-          },
         ].map((item) => (
           <div key={item.label} style={statusPillStyle(item.tone)}>
             <div
@@ -3491,6 +5102,449 @@ export default function Page() {
       </div>
     </div>
   );
+  const contentManagementWorkspaceContent = (
+    <div style={contentManagementWorkspaceStyle}>
+      <div style={contentManagementPanelStyle}>
+        <div style={contentManagementPanelHeaderStyle}>
+          <div>
+            <div style={{ ...sectionLabelStyle, marginBottom: 6 }}>Content Management</div>
+            <div style={contentManagementTitleStyle}>Content Overview</div>
+          </div>
+          <div style={contentManagementPanelMetaStyle}>
+            This layer supports content work without changing the production pipeline.
+          </div>
+        </div>
+
+        <div style={contentManagementOverviewGridStyle}>
+          {contentOverviewItems.map((item) => (
+            <div
+              key={item.key}
+              style={contentManagementMetricCardStyle(
+                item.tone,
+                item.key === "asset_completeness"
+              )}
+            >
+              <div style={contentManagementMetricLabelStyle(item.tone)}>{item.label}</div>
+              <div style={contentManagementMetricValueStyle}>{item.value}</div>
+              <div style={contentManagementMetricMetaTextStyle}>{item.meta}</div>
+              {item.key === "asset_completeness" ? (
+                <div style={contentManagementAssetListStyle}>
+                  {contentAssetCompleteness.items.map((asset) => (
+                    <div
+                      key={asset.key}
+                      style={contentManagementAssetBadgeStyle(asset.complete)}
+                    >
+                      {asset.label}: {asset.complete ? "Yes" : "No"}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div style={contentManagementPanelStyle}>
+        <div>
+          <div style={{ ...sectionLabelStyle, marginBottom: 6 }}>Content Production</div>
+          <div style={contentManagementTitleStyle}>Content Actions</div>
+        </div>
+
+        <div style={contentManagementActionGridStyle}>
+          <button
+            onClick={handleGenerateManagedContent}
+            style={contentManagementActionButtonStyle("primary", managedContentGenerating)}
+            disabled={managedContentGenerating}
+          >
+            {managedContentGenerating ? "Generating..." : "Generate Content"}
+          </button>
+          <button
+            onClick={handlePreviewManagedContent}
+            style={contentManagementActionButtonStyle("secondary", !contentPreviewHref)}
+            disabled={!contentPreviewHref}
+          >
+            Preview
+          </button>
+          <button
+            onClick={handleApproveManagedContent}
+            style={contentManagementActionButtonStyle(
+              "secondary",
+              selectedContentManagement.generation_status !== "generated"
+            )}
+            disabled={selectedContentManagement.generation_status !== "generated"}
+          >
+            Approve
+          </button>
+          <button
+            onClick={handlePublishManagedContent}
+            style={contentManagementActionButtonStyle(
+              "primary",
+              selectedContentManagement.review_status !== "approved"
+            )}
+            disabled={selectedContentManagement.review_status !== "approved"}
+          >
+            Publish
+          </button>
+          <button
+            onClick={handleUnpublishManagedContent}
+            style={contentManagementActionButtonStyle(
+              "secondary",
+              selectedContentManagement.publish_status !== "live"
+            )}
+            disabled={selectedContentManagement.publish_status !== "live"}
+          >
+            Unpublish
+          </button>
+        </div>
+
+        {contentManagementNextStepGuidance ? (
+          <div style={contentManagementGuidanceStyle}>
+            <div style={contentManagementGuidanceLabelStyle}>Next Step</div>
+            <div style={contentManagementGuidanceTextStyle}>
+              {contentManagementNextStepGuidance}
+            </div>
+          </div>
+        ) : null}
+
+        <div style={operatorHintStyle("muted")}>
+          Generated content can be reviewed and edited here without changing pipeline stage
+          state, QR behavior, commerce status, or CRM/order flow.
+        </div>
+      </div>
+    </div>
+  );
+  const contentStudioGeneratedDraftContent = (
+    <div style={contentStudioDraftSectionStyle}>
+      <div style={contentStudioDraftHeaderStyle}>
+        <div>
+          <div style={{ ...sectionLabelStyle, marginBottom: 6 }}>Generated V1 Content</div>
+          <div style={contentManagementTitleStyle}>Controlled Editing</div>
+        </div>
+        <div style={contentManagementPanelMetaStyle}>
+          Operators can edit generated copy here. Save writes back to the same Supabase
+          fields on this doll.
+        </div>
+      </div>
+
+      <div style={contentStudioDraftGridStyle}>
+        <div style={contentCardStyle}>
+          <div style={contentStudioSectionHeaderStyle}>
+            <label style={labelStyle}>Intro Script</label>
+            <div style={contentStudioSectionActionsStyle}>
+              {generatedContentEditState.intro_script ? (
+                <>
+                  <button
+                    onClick={saveIntroScriptEdit}
+                    style={contentStudioSectionButtonStyle(
+                      "primary",
+                      generatedContentSavingState.intro_script
+                    )}
+                    disabled={generatedContentSavingState.intro_script}
+                  >
+                    {generatedContentSavingState.intro_script ? "Saving..." : "Save"}
+                  </button>
+                  <button
+                    onClick={cancelIntroScriptEditing}
+                    style={contentStudioSectionButtonStyle(
+                      "secondary",
+                      generatedContentSavingState.intro_script
+                    )}
+                    disabled={generatedContentSavingState.intro_script}
+                  >
+                    Cancel
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={startIntroScriptEditing}
+                  style={contentStudioSectionButtonStyle("secondary")}
+                >
+                  Edit
+                </button>
+              )}
+            </div>
+          </div>
+
+          <textarea
+            value={
+              generatedContentEditState.intro_script
+                ? introScriptDraft
+                : selectedGeneratedV1Content.intro_script
+            }
+            onChange={(event) => setIntroScriptDraft(event.target.value)}
+            readOnly={!generatedContentEditState.intro_script}
+            placeholder="Generate content to create the intro script."
+            style={
+              generatedContentEditState.intro_script
+                ? { ...inputStyle, minHeight: 120 }
+                : { ...contentStudioReadonlyFieldStyle, minHeight: 120 }
+            }
+          />
+        </div>
+
+        <div style={contentStudioStoryGridStyle}>
+          {selectedGeneratedV1Content.story_pages.map((page, index) => (
+            <div key={`story-page-${index + 1}`} style={contentCardStyle}>
+              <div style={contentStudioSectionHeaderStyle}>
+                <label style={labelStyle}>Story Page {index + 1}</label>
+                <div style={contentStudioSectionActionsStyle}>
+                  {generatedContentEditState.story_pages[index] ? (
+                    <>
+                      <button
+                        onClick={() => saveStoryPageEdit(index)}
+                        style={contentStudioSectionButtonStyle(
+                          "primary",
+                          generatedContentSavingState.story_pages[index]
+                        )}
+                        disabled={generatedContentSavingState.story_pages[index]}
+                      >
+                        {generatedContentSavingState.story_pages[index] ? "Saving..." : "Save"}
+                      </button>
+                      <button
+                        onClick={() => cancelStoryPageEditing(index)}
+                        style={contentStudioSectionButtonStyle(
+                          "secondary",
+                          generatedContentSavingState.story_pages[index]
+                        )}
+                        disabled={generatedContentSavingState.story_pages[index]}
+                      >
+                        Cancel
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      onClick={() => startStoryPageEditing(index)}
+                      style={contentStudioSectionButtonStyle("secondary")}
+                    >
+                      Edit
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <textarea
+                value={generatedContentEditState.story_pages[index] ? storyPageDrafts[index] : page}
+                onChange={(event) =>
+                  setStoryPageDrafts((prev) =>
+                    prev.map((value, pageIndex) =>
+                      pageIndex === index ? event.target.value : value
+                    )
+                  )
+                }
+                readOnly={!generatedContentEditState.story_pages[index]}
+                placeholder={`Generate content to create story page ${index + 1}.`}
+                style={
+                  generatedContentEditState.story_pages[index]
+                    ? { ...inputStyle, minHeight: 120 }
+                    : { ...contentStudioReadonlyFieldStyle, minHeight: 120 }
+                }
+              />
+            </div>
+          ))}
+        </div>
+
+        <div style={contentCardStyle}>
+          <div style={contentStudioSectionHeaderStyle}>
+            <label style={labelStyle}>Play Activity</label>
+            <div style={contentStudioSectionActionsStyle}>
+              {generatedContentEditState.play_activity ? (
+                <>
+                  <button
+                    onClick={savePlayActivityEdit}
+                    style={contentStudioSectionButtonStyle(
+                      "primary",
+                      generatedContentSavingState.play_activity
+                    )}
+                    disabled={generatedContentSavingState.play_activity}
+                  >
+                    {generatedContentSavingState.play_activity ? "Saving..." : "Save"}
+                  </button>
+                  <button
+                    onClick={cancelPlayActivityEditing}
+                    style={contentStudioSectionButtonStyle(
+                      "secondary",
+                      generatedContentSavingState.play_activity
+                    )}
+                    disabled={generatedContentSavingState.play_activity}
+                  >
+                    Cancel
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={startPlayActivityEditing}
+                  style={contentStudioSectionButtonStyle("secondary")}
+                >
+                  Edit
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div style={contentStudioFieldStackStyle}>
+            <div>
+              <label style={labelStyle}>Prompt</label>
+              <input
+                value={
+                  generatedContentEditState.play_activity
+                    ? playActivityDraft.prompt
+                    : selectedGeneratedV1Content.play_activity.prompt
+                }
+                onChange={(event) =>
+                  setPlayActivityDraft((prev) => ({
+                    ...prev,
+                    prompt: event.target.value,
+                  }))
+                }
+                readOnly={!generatedContentEditState.play_activity}
+                placeholder="Generate content to create the play activity."
+                style={
+                  generatedContentEditState.play_activity
+                    ? inputStyle
+                    : contentStudioReadonlyFieldStyle
+                }
+              />
+            </div>
+
+            {generatedContentEditState.play_activity ? (
+              <div style={contentStudioChoiceListStyle}>
+                {buildEditablePlayActivityState(playActivityDraft).choices.map((choice, index) => (
+                  <div key={choice.id} style={contentStudioChoiceEditorCardStyle}>
+                    <div>
+                      <label style={labelStyle}>Choice {index + 1} Label</label>
+                      <input
+                        value={choice.label}
+                        onChange={(event) =>
+                          setPlayActivityDraft((prev) => ({
+                            ...prev,
+                            choices: buildEditablePlayActivityState(prev).choices.map(
+                              (draftChoice, choiceIndex) =>
+                                choiceIndex === index
+                                  ? {
+                                      ...draftChoice,
+                                      label: event.target.value,
+                                    }
+                                  : draftChoice
+                            ),
+                          }))
+                        }
+                        style={inputStyle}
+                      />
+                    </div>
+                    <div>
+                      <label style={labelStyle}>Choice {index + 1} Result</label>
+                      <textarea
+                        value={choice.result_text}
+                        onChange={(event) =>
+                          setPlayActivityDraft((prev) => ({
+                            ...prev,
+                            choices: buildEditablePlayActivityState(prev).choices.map(
+                              (draftChoice, choiceIndex) =>
+                                choiceIndex === index
+                                  ? {
+                                      ...draftChoice,
+                                      result_text: event.target.value,
+                                    }
+                                  : draftChoice
+                            ),
+                          }))
+                        }
+                        style={{ ...inputStyle, minHeight: 100 }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : selectedHasPlayActivityChoices ? (
+              <div style={contentStudioChoiceListStyle}>
+                {selectedEditablePlayActivity.choices.map((choice, index) => (
+                  <div key={choice.id} style={contentStudioChoiceCardStyle}>
+                    <div style={contentStudioChoiceLabelStyle}>
+                      Choice {index + 1}: {choice.label || "Untitled"}
+                    </div>
+                    <div style={contentStudioChoiceResultStyle}>{choice.result_text}</div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={inlineValidationHintStyle}>
+                Generate content to create the play activity choices.
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+  const sharedWorkspaceFeedbackContent = workflowFeedback ? (
+    <div style={workflowFeedbackSlotStyle}>
+      <div
+        aria-live="polite"
+        role={workflowFeedback.tone === "error" ? "alert" : "status"}
+        title={workflowFeedback.message}
+        style={workflowFeedbackMessageStyle(workflowFeedback.tone, true)}
+      >
+        {workflowFeedback.message}
+      </div>
+    </div>
+  ) : null;
+  const dashboardWorkspaceContent = (
+    <div style={dashboardWorkspaceStyle}>
+      {sharedWorkspaceFeedbackContent}
+
+      <div style={dashboardSummaryGridStyle}>
+        {dashboardSummaryItems.map((item) => (
+          <div key={item.key} style={dashboardSummaryCardStyle(item.tone)}>
+            <div style={dashboardSummaryLabelStyle}>{item.label}</div>
+            <div style={dashboardSummaryValueStyle}>{item.value}</div>
+            <div style={dashboardSummaryMetaStyle}>{item.meta}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={dashboardNextStepCardStyle}>
+        <div style={dashboardNextStepLabelStyle}>Next Step</div>
+        <div style={dashboardNextStepTextStyle}>{dashboardNextStepMessage}</div>
+        {dashboardRecommendedWorkspaceLabel ? (
+          <div style={dashboardNextStepHintStyle}>
+            Recommended workspace: {dashboardRecommendedWorkspaceLabel}
+          </div>
+        ) : null}
+      </div>
+
+      <div style={dashboardActionGridStyle}>
+        <button
+          onClick={() => setSelectedWorkspaceMode("pipeline")}
+          style={dashboardActionCardStyle(dashboardRecommendedWorkspace === "pipeline")}
+        >
+          <div style={dashboardActionLabelStyle}>Workspace</div>
+          <div style={dashboardActionTitleStyle}>Open Production Pipeline</div>
+          <div style={dashboardActionDescriptionStyle}>
+            Manage pipeline progression, readiness, digital activation, commerce,
+            and downstream order work for this doll.
+          </div>
+          {dashboardRecommendedWorkspace === "pipeline" ? (
+            <div style={dashboardActionBadgeStyle}>Recommended</div>
+          ) : null}
+        </button>
+
+        <button
+          onClick={() => setSelectedWorkspaceMode("content_studio")}
+          style={dashboardActionCardStyle(dashboardRecommendedWorkspace === "content_studio")}
+        >
+          <div style={dashboardActionLabelStyle}>Workspace</div>
+          <div style={dashboardActionTitleStyle}>Open Content Studio</div>
+          <div style={dashboardActionDescriptionStyle}>
+            Manage content overview, approval, publishing status, and the Build 1
+            content operations for this doll.
+          </div>
+          {dashboardRecommendedWorkspace === "content_studio" ? (
+            <div style={dashboardActionBadgeStyle}>Recommended</div>
+          ) : null}
+        </button>
+      </div>
+    </div>
+  );
   const overviewWorkspaceContent = (
     <>
       {overviewSummaryContent}
@@ -3521,6 +5575,448 @@ export default function Page() {
             : currentStageView === "ready"
               ? readyStageContent
               : null;
+  const pipelineWorkspaceContent = (
+    <>
+      <div style={workflowHeaderStackStyle}>
+        <div style={workflowHeaderPanelStyle}>
+          {workflowFeedback ? (
+            <div style={workflowFeedbackSlotStyle}>
+              <div
+                aria-live="polite"
+                role={workflowFeedback.tone === "error" ? "alert" : "status"}
+                title={workflowFeedback.message}
+                style={workflowFeedbackMessageStyle(workflowFeedback.tone, true)}
+              >
+                {workflowFeedback.message}
+              </div>
+            </div>
+          ) : null}
+
+          <div style={pipelineStageSectionStyle}>
+            <div style={workflowSectionHeaderStyle}>
+              <div style={{ ...sectionLabelStyle, marginBottom: 0 }}>Pipeline</div>
+              <button
+                onClick={() => setActiveStageView("overview")}
+                style={overviewViewButtonStyle(currentStageView === "overview")}
+              >
+                Overview
+              </button>
+            </div>
+            <div className="pipeline-stage-grid" style={pipelineStageGridStyle}>
+              {PRODUCTION_STAGES.map((stage) => {
+                const stageStatus = selectedPipelineState?.[stage.key]?.status || "locked";
+                const isCurrentOpenStage = stage.key === currentOpenPipelineStage;
+                const isCompletedStage = stageStatus === "completed";
+                const isActiveStageView = currentStageView === stage.key;
+
+                return (
+                  <div
+                    key={stage.value}
+                    onClick={() => setActiveStageView(stage.key)}
+                    style={pipelineStageCardStyle(stageStatus, isActiveStageView)}
+                  >
+                    <div style={pipelineStageCardHeaderStyle}>
+                      <div style={pipelineStageNumberStyle(stageStatus)}>
+                        Step {stage.value}
+                      </div>
+                      <div
+                        aria-label={pipelineStageStateLabel(stageStatus)}
+                        title={pipelineStageStateLabel(stageStatus)}
+                        style={pipelineStageStatusIconStyle(stageStatus)}
+                      >
+                        {pipelineStageStatusIcon(stageStatus)}
+                      </div>
+                    </div>
+                    <div style={pipelineStageNameStyle(stageStatus)}>{stage.label}</div>
+                    {isCurrentOpenStage ? (
+                      <div style={pipelineStageActionRowStyle}>
+                        <button
+                          onClick={() => completePipelineStage(stage.key)}
+                          style={pipelineStageActionButtonStyle(
+                            stageStatus,
+                            pipelineStageActionBusy
+                          )}
+                          disabled={pipelineStageActionBusy}
+                        >
+                          {pipelineStageCompleting === stage.key
+                            ? "Completing..."
+                            : "Complete"}
+                        </button>
+                      </div>
+                    ) : isCompletedStage ? (
+                      <div style={pipelineStageActionRowStyle}>
+                        <button
+                          onClick={() => requestReopenPipelineStage(stage.key)}
+                          style={pipelineStageSecondaryActionButtonStyle(
+                            stageStatus,
+                            pipelineStageActionBusy
+                          )}
+                          disabled={pipelineStageActionBusy}
+                        >
+                          {pipelineStageReopening === stage.key
+                            ? "Reopening..."
+                            : "Reopen"}
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {showWorkflowGuidance ? (
+            <div style={workflowGuidanceRowStyle}>
+              <div style={workflowGuidanceLabelStyle}>Guidance</div>
+              <div style={workflowGuidanceTextStyle(workflowGuidance.tone)}>
+                {workflowGuidance.message}
+              </div>
+            </div>
+          ) : null}
+        </div>
+
+        {showLegacyDepartmentsNavigation ? (
+          <div style={departmentsSectionStyle}>
+            <div style={{ ...sectionLabelStyle, marginBottom: 10 }}>Departments</div>
+            <div style={departmentsRowStyle}>
+              {DEPARTMENTS.map((department) => (
+                <button
+                  key={department}
+                  onClick={() => setActiveDepartment(department)}
+                  style={departmentPillStyle(currentDepartment === department)}
+                >
+                  {department}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </div>
+
+      {visibleStageContent}
+    </>
+  );
+  const contentStudioWorkspaceContent = (
+    <>
+      {sharedWorkspaceFeedbackContent}
+      {contentManagementWorkspaceContent}
+      {contentStudioGeneratedDraftContent}
+    </>
+  );
+  const selectedWorkspaceContent =
+    currentSelectedWorkspaceMode === "pipeline"
+      ? pipelineWorkspaceContent
+      : currentSelectedWorkspaceMode === "content_studio"
+        ? contentStudioWorkspaceContent
+        : dashboardWorkspaceContent;
+  const showPassiveOperationsResults =
+    operationsFilter === "live" || operationsFilter === "archived";
+  const showProductionQueue =
+    !showPassiveOperationsResults &&
+    ["all", "needs_attention", "production"].includes(operationsFilter);
+  const showContentQueue =
+    !showPassiveOperationsResults &&
+    ["all", "needs_attention", "content"].includes(operationsFilter);
+  const passiveOperationsTitle =
+    operationsFilter === "archived" ? "Archived Dolls" : "Live Dolls";
+  const passiveOperationsMeta =
+    operationsFilter === "archived"
+      ? "A read-only reference list for dolls that have been archived out of active operations."
+      : "A read-only reference list for dolls whose content is already live.";
+
+  function renderOperationsCard(operation) {
+    return (
+      <div
+        key={operation.id || `${operation.internal_id}-${operation.name}`}
+        style={operationsCardStyle(operation.urgency, selected?.id === operation.id)}
+      >
+        <div style={operationsCardHeaderStyle}>
+          <div>
+            <div style={operationsCardNameStyle}>{operation.name}</div>
+            <div style={operationsCardMetaStyle}>
+              {operation.internal_id || "No ID"} - {operation.theme_name || "Unassigned"}
+            </div>
+          </div>
+          <div style={operationsUrgencyBadgeStyle(operation.urgency)}>
+            {formatStatusToken(operation.urgency)}
+          </div>
+        </div>
+
+        <div style={operationsBadgeRowStyle}>
+          <div style={operationsBucketBadgeStyle("production")}>
+            {formatStatusToken(operation.production_bucket)}
+          </div>
+          <div style={operationsBucketBadgeStyle("content")}>
+            {formatStatusToken(operation.content_bucket)}
+          </div>
+        </div>
+
+        <div style={operationsActionLabelStyle}>Next Action</div>
+        <div style={operationsActionTextStyle}>{operation.next_action}</div>
+        <div style={operationsReasonTextStyle}>
+          {operation.recommended_workspace_reason}
+        </div>
+
+        <div style={operationsCardActionRowStyle}>
+          <button
+            type="button"
+            onClick={() =>
+              openDollWorkspace(operation.id, operation.recommended_workspace)
+            }
+            style={primaryButton}
+          >
+            {operationsWorkspaceButtonLabel(operation.recommended_workspace)}
+          </button>
+        </div>
+      </div>
+    );
+  }
+  const operationsBoardContent = (
+    <section style={operationsBoardStyle}>
+      <div style={operationsBoardHeaderStyle}>
+        <div>
+          <div style={{ ...sectionLabelStyle, marginBottom: 6 }}>Multi-Doll Operations</div>
+          <div style={contentManagementTitleStyle}>Operations Board</div>
+        </div>
+        <div style={operationsBoardMetaStyle}>
+          A read-only triage layer that shows which dolls need attention and routes the
+          operator into the correct workspace.
+        </div>
+      </div>
+
+      <div style={operationsControlsRowStyle}>
+        <div style={operationsFilterPillRowStyle}>
+          {OPERATIONS_BOARD_FILTERS.map((filterOption) => (
+            <button
+              key={filterOption.value}
+              type="button"
+              onClick={() => setOperationsFilter(filterOption.value)}
+              style={operationsFilterPillStyle(
+                operationsFilter === filterOption.value
+              )}
+            >
+              {filterOption.label}
+            </button>
+          ))}
+        </div>
+
+        <div style={operationsSortControlStyle}>
+          <label style={labelStyle}>Sort</label>
+          <select
+            value={operationsSort}
+            onChange={(event) => setOperationsSort(event.target.value)}
+            style={{ ...inputStyle, minWidth: 180, marginTop: 0 }}
+          >
+            {OPERATIONS_BOARD_SORT_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      <div style={operationsSummaryGridStyle}>
+        {operationsSummaryItems.map((item) => (
+          <div key={item.key} style={operationsSummaryCardStyle}>
+            <div style={operationsSummaryLabelStyle}>{item.label}</div>
+            <div style={operationsSummaryValueStyle}>{item.value}</div>
+          </div>
+        ))}
+      </div>
+
+      {showPassiveOperationsResults ? (
+        <div style={operationsQueueColumnStyle}>
+          <div style={operationsQueueHeaderStyle}>
+            <div style={contentManagementTitleStyle}>{passiveOperationsTitle}</div>
+            <div style={operationsQueueMetaStyle}>{passiveOperationsMeta}</div>
+          </div>
+
+          {filteredOperationsByDoll.length ? (
+            <div style={operationsCardListStyle}>
+              {filteredOperationsByDoll.map((operation) =>
+                renderOperationsCard(operation)
+              )}
+            </div>
+          ) : (
+            <div style={operationsEmptyStateStyle}>
+              {operationsPassiveEmptyStateText(operationsFilter)}
+            </div>
+          )}
+        </div>
+      ) : (
+        <div style={operationsQueueGridStyle}>
+          {showProductionQueue ? (
+            <div style={operationsQueueColumnStyle}>
+          <div style={operationsQueueHeaderStyle}>
+            <div style={contentManagementTitleStyle}>Production Queue</div>
+            <div style={operationsQueueMetaStyle}>
+              Dolls whose next action belongs in Production Pipeline.
+            </div>
+          </div>
+
+          {productionQueueGroups.length ? (
+            productionQueueGroups.map((group) => (
+              <div key={group.bucket} style={operationsBucketSectionStyle}>
+                <div style={operationsBucketHeaderStyle}>
+                  <div style={operationsBucketTitleStyle}>
+                    {formatStatusToken(group.bucket)}
+                  </div>
+                  <div style={operationsBucketCountStyle}>{group.items.length}</div>
+                </div>
+
+                <div style={operationsCardListStyle}>
+                  {group.items.map((operation) => (
+                    <div
+                      key={operation.id}
+                      style={operationsCardStyle(
+                        operation.urgency,
+                        selected?.id === operation.id
+                      )}
+                    >
+                      <div style={operationsCardHeaderStyle}>
+                        <div>
+                          <div style={operationsCardNameStyle}>{operation.name}</div>
+                          <div style={operationsCardMetaStyle}>
+                            {operation.internal_id || "No ID"} -{" "}
+                            {operation.theme_name || "Unassigned"}
+                          </div>
+                        </div>
+                        <div style={operationsUrgencyBadgeStyle(operation.urgency)}>
+                          {formatStatusToken(operation.urgency)}
+                        </div>
+                      </div>
+
+                      <div style={operationsBadgeRowStyle}>
+                        <div style={operationsBucketBadgeStyle("production")}>
+                          {formatStatusToken(operation.production_bucket)}
+                        </div>
+                        <div style={operationsBucketBadgeStyle("content")}>
+                          {formatStatusToken(operation.content_bucket)}
+                        </div>
+                      </div>
+
+                      <div style={operationsActionLabelStyle}>Next Action</div>
+                      <div style={operationsActionTextStyle}>{operation.next_action}</div>
+                      <div style={operationsReasonTextStyle}>
+                        {operation.recommended_workspace_reason}
+                      </div>
+
+                      <div style={operationsCardActionRowStyle}>
+                        <button
+                          onClick={() =>
+                            openDollWorkspace(
+                              operation.id,
+                              operation.recommended_workspace
+                            )
+                          }
+                          style={primaryButton}
+                        >
+                          {operationsWorkspaceButtonLabel(
+                            operation.recommended_workspace
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))
+          ) : (
+            <div style={operationsEmptyStateStyle}>
+              {operationsQueueEmptyStateText("production", operationsFilter)}
+            </div>
+          )}
+            </div>
+          ) : null}
+
+          {showContentQueue ? (
+            <div style={operationsQueueColumnStyle}>
+              <div style={operationsQueueHeaderStyle}>
+                <div style={contentManagementTitleStyle}>Content Queue</div>
+                <div style={operationsQueueMetaStyle}>
+                  Dolls whose next action belongs in Content Studio.
+                </div>
+              </div>
+
+          {contentQueueGroups.length ? (
+            contentQueueGroups.map((group) => (
+              <div key={group.bucket} style={operationsBucketSectionStyle}>
+                <div style={operationsBucketHeaderStyle}>
+                  <div style={operationsBucketTitleStyle}>
+                    {formatStatusToken(group.bucket)}
+                  </div>
+                  <div style={operationsBucketCountStyle}>{group.items.length}</div>
+                </div>
+
+                <div style={operationsCardListStyle}>
+                  {group.items.map((operation) => (
+                    <div
+                      key={operation.id}
+                      style={operationsCardStyle(
+                        operation.urgency,
+                        selected?.id === operation.id
+                      )}
+                    >
+                      <div style={operationsCardHeaderStyle}>
+                        <div>
+                          <div style={operationsCardNameStyle}>{operation.name}</div>
+                          <div style={operationsCardMetaStyle}>
+                            {operation.internal_id || "No ID"} -{" "}
+                            {operation.theme_name || "Unassigned"}
+                          </div>
+                        </div>
+                        <div style={operationsUrgencyBadgeStyle(operation.urgency)}>
+                          {formatStatusToken(operation.urgency)}
+                        </div>
+                      </div>
+
+                      <div style={operationsBadgeRowStyle}>
+                        <div style={operationsBucketBadgeStyle("production")}>
+                          {formatStatusToken(operation.production_bucket)}
+                        </div>
+                        <div style={operationsBucketBadgeStyle("content")}>
+                          {formatStatusToken(operation.content_bucket)}
+                        </div>
+                      </div>
+
+                      <div style={operationsActionLabelStyle}>Next Action</div>
+                      <div style={operationsActionTextStyle}>{operation.next_action}</div>
+                      <div style={operationsReasonTextStyle}>
+                        {operation.recommended_workspace_reason}
+                      </div>
+
+                      <div style={operationsCardActionRowStyle}>
+                        <button
+                          onClick={() =>
+                            openDollWorkspace(
+                              operation.id,
+                              operation.recommended_workspace
+                            )
+                          }
+                          style={primaryButton}
+                        >
+                          {operationsWorkspaceButtonLabel(
+                            operation.recommended_workspace
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))
+          ) : (
+            <div style={operationsEmptyStateStyle}>
+              {operationsQueueEmptyStateText("content", operationsFilter)}
+            </div>
+          )}
+            </div>
+          ) : null}
+        </div>
+      )}
+    </section>
+  );
 
   return (
     <main style={{ background: "#f6f7fb", minHeight: "100vh", padding: 32, fontFamily: "Inter, Arial, sans-serif", color: "#0f172a" }}>
@@ -3555,19 +6051,7 @@ export default function Page() {
           A full internal pipeline that transforms every handmade doll into a character, a living digital story asset, and a scalable brand node.
         </p>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 18, marginTop: 28 }}>
-          {[
-            ["Total Dolls", metrics.total],
-            ["In Commerce", metrics.commerce],
-            ["Available", metrics.available],
-            ["Sold", metrics.sold],
-          ].map(([label, value]) => (
-            <div key={label} style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 22, padding: 24 }}>
-              <div style={{ color: "#64748b", fontSize: 16 }}>{label}</div>
-              <div style={{ fontSize: 42, marginTop: 10, fontWeight: 700 }}>{value}</div>
-            </div>
-          ))}
-        </div>
+        {operationsBoardContent}
 
         <div style={{ display: "grid", gridTemplateColumns: "320px minmax(0, 1fr)", gap: 24, marginTop: 28 }}>
           <section
@@ -3608,7 +6092,10 @@ export default function Page() {
                 {dolls.map((d) => (
                   <button
                     key={d.id}
-                    onClick={() => setSelectedId(d.id)}
+                    onClick={() => {
+                      pendingSelectedWorkspaceModeRef.current = "";
+                      setSelectedId(d.id);
+                    }}
                     style={{
                       textAlign: "left",
                       border: selected?.id === d.id ? "2px solid #0f172a" : "1px solid #cbd5e1",
@@ -3657,138 +6144,39 @@ export default function Page() {
                       <h2 style={{ margin: 0, fontSize: 28 }}>{selected.name}</h2>
                       {selectedIsArchived ? <div style={archivedBadgeStyle}>Archived</div> : null}
                     </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginTop: 10 }}>
+                      <div style={selectedWorkspaceModeBadgeStyle(currentSelectedWorkspaceMode)}>
+                        {selectedWorkspaceHeading}
+                      </div>
+                      <div style={selectedWorkspaceSummaryStyle}>{selectedWorkspaceSummary}</div>
+                    </div>
                   </div>
 
-                  <div style={{ display: "flex", gap: 12 }}>
-                    <button onClick={generateDraft} style={secondaryButton}>Generate Content Draft</button>
-                    <button onClick={advanceStage} style={primaryButton}>Advance Production Stage</button>
-                  </div>
-                </div>
-                <div style={workflowHeaderStackStyle}>
-                  <div style={workflowHeaderPanelStyle}>
-                    <div style={workflowFeedbackSlotStyle}>
-                      <div
-                        aria-live="polite"
-                        role={workflowFeedback?.tone === "error" ? "alert" : "status"}
-                        title={workflowFeedback?.message || ""}
-                        style={workflowFeedbackMessageStyle(
-                          workflowFeedback?.tone || "muted",
-                          Boolean(workflowFeedback)
-                        )}
+                  <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                    {currentSelectedWorkspaceMode === "content_studio" ? (
+                      <button
+                        onClick={generateDraft}
+                        style={
+                          managedContentGenerating
+                            ? disabledActionStyle(secondaryButton)
+                            : secondaryButton
+                        }
+                        disabled={managedContentGenerating}
                       >
-                        {workflowFeedback?.message || "\u00A0"}
-                      </div>
-                    </div>
-
-                    <div style={pipelineStageSectionStyle}>
-                      <div style={workflowSectionHeaderStyle}>
-                        <div style={{ ...sectionLabelStyle, marginBottom: 0 }}>Pipeline</div>
-                        <button
-                          onClick={() => setActiveStageView("overview")}
-                          style={overviewViewButtonStyle(currentStageView === "overview")}
-                        >
-                          Overview
-                        </button>
-                      </div>
-                      <div className="pipeline-stage-grid" style={pipelineStageGridStyle}>
-                        {PRODUCTION_STAGES.map((stage) => {
-                          const stageStatus = selectedPipelineState?.[stage.key]?.status || "locked";
-                          const isCurrentOpenStage = stage.key === currentOpenPipelineStage;
-                          const isCompletedStage = stageStatus === "completed";
-                          const isActiveStageView = currentStageView === stage.key;
-
-                          return (
-                            <div
-                              key={stage.value}
-                              onClick={() => setActiveStageView(stage.key)}
-                              style={pipelineStageCardStyle(stageStatus, isActiveStageView)}
-                            >
-                              <div style={pipelineStageCardHeaderStyle}>
-                                <div style={pipelineStageNumberStyle(stageStatus)}>
-                                  Stage {stage.value}
-                                </div>
-                                <div
-                                  aria-label={pipelineStageStateLabel(stageStatus)}
-                                  title={pipelineStageStateLabel(stageStatus)}
-                                  style={pipelineStageStatusIconStyle(stageStatus)}
-                                >
-                                  {pipelineStageStatusIcon(stageStatus)}
-                                </div>
-                              </div>
-                              <div style={pipelineStageNameStyle(stageStatus)}>{stage.label}</div>
-                              {isCurrentOpenStage ? (
-                                <div style={pipelineStageActionRowStyle}>
-                                  <button
-                                    onClick={() => completePipelineStage(stage.key)}
-                                    style={pipelineStageActionButtonStyle(
-                                      stageStatus,
-                                      pipelineStageActionBusy
-                                    )}
-                                    disabled={pipelineStageActionBusy}
-                                  >
-                                    {pipelineStageCompleting === stage.key
-                                      ? "Completing..."
-                                      : "Complete"}
-                                  </button>
-                                </div>
-                              ) : isCompletedStage ? (
-                                <div style={pipelineStageActionRowStyle}>
-                                  <button
-                                    onClick={() => requestReopenPipelineStage(stage.key)}
-                                    style={pipelineStageSecondaryActionButtonStyle(
-                                      stageStatus,
-                                      pipelineStageActionBusy
-                                    )}
-                                    disabled={pipelineStageActionBusy}
-                                  >
-                                    {pipelineStageReopening === stage.key
-                                      ? "Reopening..."
-                                      : "Reopen"}
-                                  </button>
-                                </div>
-                              ) : null}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    <div style={workflowGuidanceRowStyle}>
-                      <div style={workflowGuidanceLabelStyle}>Guidance</div>
-                      <div style={workflowGuidanceTextStyle(workflowGuidance.tone)}>
-                        {workflowGuidance.message}
-                      </div>
-                    </div>
-
-                    <div aria-hidden="true" style={pipelineProgressTrackStyle}>
-                      <div
-                        style={{
-                          ...pipelineProgressFillStyle,
-                          width: `${selectedPipelineProgressPercent}%`,
-                        }}
-                      />
-                    </div>
+                        {managedContentGenerating ? "Generating..." : "Generate Content Draft"}
+                      </button>
+                    ) : null}
+                    {currentSelectedWorkspaceMode !== "dashboard" ? (
+                      <button
+                        onClick={() => setSelectedWorkspaceMode("dashboard")}
+                        style={secondaryButton}
+                      >
+                        Back to Dashboard
+                      </button>
+                    ) : null}
                   </div>
-
-                  {showLegacyDepartmentsNavigation ? (
-                    <div style={departmentsSectionStyle}>
-                      <div style={{ ...sectionLabelStyle, marginBottom: 10 }}>Departments</div>
-                      <div style={departmentsRowStyle}>
-                        {DEPARTMENTS.map((department) => (
-                          <button
-                            key={department}
-                            onClick={() => setActiveDepartment(department)}
-                            style={departmentPillStyle(currentDepartment === department)}
-                          >
-                            {department}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  ) : null}
                 </div>
-
-                {visibleStageContent}
+                {selectedWorkspaceContent}
               </>
             ) : (
               <>
@@ -3948,6 +6336,184 @@ const secondaryButton = {
   fontSize: 16,
   cursor: "pointer",
 };
+
+function storyVariationDebugStatusStyle(isPopulated = false) {
+  return {
+    marginBottom: 12,
+    padding: "10px 12px",
+    borderRadius: 14,
+    border: `1px solid ${isPopulated ? "#ef4444" : "#fca5a5"}`,
+    background: isPopulated ? "#fef2f2" : "#fff7ed",
+    color: "#991b1b",
+    fontSize: 13,
+    lineHeight: 1.5,
+    fontWeight: 700,
+  };
+}
+
+const storyVariationDebugPanelStyle = {
+  marginBottom: 16,
+  padding: 16,
+  borderRadius: 18,
+  border: "2px solid #dc2626",
+  background: "#fef2f2",
+  display: "grid",
+  gap: 12,
+};
+
+const storyVariationDebugTitleStyle = {
+  color: "#991b1b",
+  fontSize: 16,
+  lineHeight: 1.3,
+  fontWeight: 800,
+  letterSpacing: "0.04em",
+};
+
+const storyVariationDebugMetaStyle = {
+  color: "#7f1d1d",
+  fontSize: 14,
+  lineHeight: 1.5,
+  fontWeight: 600,
+};
+
+const storyVariationDebugGridStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+  gap: 12,
+};
+
+const storyVariationDebugCardStyle = {
+  border: "1px solid #fca5a5",
+  borderRadius: 16,
+  background: "#fffafa",
+  padding: 14,
+  display: "grid",
+  gap: 10,
+};
+
+const storyVariationDebugLabelStyle = {
+  color: "#991b1b",
+  fontSize: 14,
+  lineHeight: 1.4,
+  fontWeight: 700,
+};
+
+const storyVariationDebugPreviewStyle = {
+  color: "#7f1d1d",
+  fontSize: 13,
+  lineHeight: 1.6,
+  whiteSpace: "pre-wrap",
+};
+
+const storyVariationDebugActionStyle = {
+  background: "#dc2626",
+  color: "#ffffff",
+  border: "none",
+  borderRadius: 14,
+  padding: "12px 14px",
+  fontSize: 13,
+  fontWeight: 700,
+  cursor: "pointer",
+};
+
+const storyVariationPanelStyle = {
+  marginBottom: 20,
+  display: "grid",
+  gap: 14,
+};
+
+const storyVariationPanelHeaderStyle = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "flex-start",
+  gap: 12,
+  flexWrap: "wrap",
+};
+
+const storyVariationPanelTitleStyle = {
+  fontSize: 16,
+  fontWeight: 700,
+  color: "#0f172a",
+  marginBottom: 4,
+};
+
+const storyVariationPanelHintStyle = {
+  fontSize: 14,
+  lineHeight: 1.6,
+  color: "#64748b",
+};
+
+const storyVariationGridStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+  gap: 14,
+};
+
+function storyVariationCardStyle(isSelected = false) {
+  return {
+    background: isSelected ? "#f0fdf4" : "#ffffff",
+    border: `1px solid ${isSelected ? "#86efac" : "#e2e8f0"}`,
+    borderRadius: 20,
+    padding: 18,
+    display: "grid",
+    gap: 14,
+    alignContent: "start",
+    minWidth: 0,
+  };
+}
+
+const storyVariationCardHeaderStyle = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "flex-start",
+  gap: 12,
+};
+
+const storyVariationCardLabelStyle = {
+  fontSize: 15,
+  fontWeight: 700,
+  color: "#0f172a",
+  lineHeight: 1.4,
+};
+
+function storyVariationBadgeStyle(isSelected = false) {
+  return {
+    padding: "6px 10px",
+    borderRadius: 999,
+    background: isSelected ? "#dcfce7" : "#f8fafc",
+    border: `1px solid ${isSelected ? "#86efac" : "#e2e8f0"}`,
+    color: isSelected ? "#166534" : "#64748b",
+    fontSize: 11,
+    fontWeight: 700,
+    letterSpacing: "0.04em",
+    textTransform: "uppercase",
+    whiteSpace: "nowrap",
+  };
+}
+
+const storyVariationPreviewStyle = {
+  margin: 0,
+  color: "#334155",
+  lineHeight: 1.7,
+  fontSize: 14,
+  whiteSpace: "pre-wrap",
+};
+
+function storyVariationActionStyle(isSelected = false) {
+  if (isSelected) {
+    return {
+      ...secondaryButton,
+      background: "#dcfce7",
+      color: "#166534",
+      cursor: "default",
+    };
+  }
+
+  return {
+    ...secondaryButton,
+    width: "100%",
+  };
+}
 
 function sectionSaveButtonLabel(defaultLabel, isDirty, isSaving, hasSavedSnapshot) {
   if (isSaving) return "Saving...";
@@ -4215,6 +6781,540 @@ const workflowHeaderStackStyle = {
   gap: 12,
 };
 
+const contentManagementWorkspaceStyle = {
+  marginTop: 14,
+  display: "grid",
+  gridTemplateColumns: "minmax(0, 1.7fr) minmax(320px, 1fr)",
+  gap: 12,
+  alignItems: "start",
+};
+
+const contentManagementPanelStyle = {
+  background: "#fafbfd",
+  border: "1px solid #e8edf3",
+  borderRadius: 22,
+  padding: 18,
+  display: "grid",
+  gap: 14,
+};
+
+const contentManagementPanelHeaderStyle = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "start",
+  gap: 12,
+  flexWrap: "wrap",
+};
+
+const contentManagementTitleStyle = {
+  fontSize: 18,
+  fontWeight: 700,
+  color: "#0f172a",
+};
+
+const contentManagementPanelMetaStyle = {
+  color: "#6b7280",
+  fontSize: 13,
+  lineHeight: 1.5,
+  maxWidth: 280,
+};
+
+function selectedWorkspaceModeBadgeStyle(mode = "dashboard") {
+  return {
+    display: "inline-flex",
+    alignItems: "center",
+    padding: "6px 12px",
+    borderRadius: 999,
+    border:
+      mode === "pipeline"
+        ? "1px solid #cbd5e1"
+        : mode === "content_studio"
+          ? "1px solid #d7e8dc"
+          : "1px solid #dbe2ea",
+    background:
+      mode === "pipeline"
+        ? "#f8fafc"
+        : mode === "content_studio"
+          ? "#fbfefc"
+          : "#ffffff",
+    color:
+      mode === "pipeline"
+        ? "#334155"
+        : mode === "content_studio"
+          ? "#355b48"
+          : "#475569",
+    fontSize: 12,
+    fontWeight: 700,
+    letterSpacing: "0.08em",
+    textTransform: "uppercase",
+  };
+}
+
+const selectedWorkspaceSummaryStyle = {
+  color: "#64748b",
+  fontSize: 14,
+  lineHeight: 1.6,
+};
+
+const dashboardWorkspaceStyle = {
+  marginTop: 14,
+  display: "grid",
+  gap: 14,
+};
+
+const dashboardSummaryGridStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+  gap: 12,
+};
+
+function dashboardSummaryCardStyle(tone = "neutral") {
+  if (tone === "success") {
+    return {
+      display: "grid",
+      gap: 6,
+      padding: "16px 18px",
+      borderRadius: 20,
+      border: "1px solid #dfe9e2",
+      background: "#f9fbfa",
+      color: "#1f5137",
+    };
+  }
+
+  if (tone === "warn") {
+    return {
+      display: "grid",
+      gap: 6,
+      padding: "16px 18px",
+      borderRadius: 20,
+      border: "1px solid #f1e4d5",
+      background: "#fffaf4",
+      color: "#8a4b16",
+    };
+  }
+
+  return {
+    display: "grid",
+    gap: 6,
+    padding: "16px 18px",
+    borderRadius: 20,
+    border: "1px solid #e2e8f0",
+    background: "#ffffff",
+    color: "#334155",
+  };
+}
+
+const dashboardSummaryLabelStyle = {
+  fontSize: 11,
+  letterSpacing: "0.08em",
+  textTransform: "uppercase",
+  color: "#64748b",
+  fontWeight: 700,
+};
+
+const dashboardSummaryValueStyle = {
+  fontSize: 22,
+  lineHeight: 1.15,
+  fontWeight: 700,
+};
+
+const dashboardSummaryMetaStyle = {
+  fontSize: 13,
+  lineHeight: 1.5,
+};
+
+const dashboardNextStepCardStyle = {
+  border: "1px solid #e2e8f0",
+  background: "#ffffff",
+  borderRadius: 20,
+  padding: "16px 18px",
+  display: "grid",
+  gap: 6,
+};
+
+const dashboardNextStepLabelStyle = {
+  fontSize: 11,
+  letterSpacing: "0.08em",
+  textTransform: "uppercase",
+  color: "#64748b",
+  fontWeight: 700,
+};
+
+const dashboardNextStepTextStyle = {
+  color: "#0f172a",
+  fontSize: 16,
+  lineHeight: 1.6,
+  fontWeight: 600,
+};
+
+const dashboardNextStepHintStyle = {
+  color: "#475569",
+  fontSize: 13,
+  lineHeight: 1.5,
+};
+
+const dashboardActionGridStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+  gap: 12,
+};
+
+function dashboardActionCardStyle(isRecommended = false) {
+  return {
+    textAlign: "left",
+    border: isRecommended ? "1px solid #0f172a" : "1px solid #e2e8f0",
+    background: "#ffffff",
+    borderRadius: 22,
+    padding: 18,
+    display: "grid",
+    gap: 8,
+    cursor: "pointer",
+  };
+}
+
+const dashboardActionLabelStyle = {
+  fontSize: 11,
+  letterSpacing: "0.08em",
+  textTransform: "uppercase",
+  color: "#64748b",
+  fontWeight: 700,
+};
+
+const dashboardActionTitleStyle = {
+  fontSize: 20,
+  lineHeight: 1.2,
+  fontWeight: 700,
+  color: "#0f172a",
+};
+
+const dashboardActionDescriptionStyle = {
+  color: "#475569",
+  fontSize: 14,
+  lineHeight: 1.6,
+};
+
+const dashboardActionBadgeStyle = {
+  display: "inline-flex",
+  alignItems: "center",
+  width: "fit-content",
+  padding: "6px 10px",
+  borderRadius: 999,
+  background: "#0f172a",
+  color: "#ffffff",
+  fontSize: 11,
+  fontWeight: 700,
+  letterSpacing: "0.08em",
+  textTransform: "uppercase",
+};
+
+const operationsBoardStyle = {
+  marginTop: 28,
+  background: "#ffffff",
+  border: "1px solid #e2e8f0",
+  borderRadius: 28,
+  padding: 22,
+  display: "grid",
+  gap: 18,
+};
+
+const operationsBoardHeaderStyle = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "start",
+  gap: 12,
+  flexWrap: "wrap",
+};
+
+const operationsBoardMetaStyle = {
+  color: "#64748b",
+  fontSize: 14,
+  lineHeight: 1.6,
+  maxWidth: 360,
+};
+
+const operationsControlsRowStyle = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "start",
+  gap: 12,
+  flexWrap: "wrap",
+};
+
+const operationsFilterPillRowStyle = {
+  display: "flex",
+  gap: 8,
+  flexWrap: "wrap",
+  alignItems: "center",
+};
+
+function operationsFilterPillStyle(isActive = false) {
+  return {
+    padding: "9px 12px",
+    borderRadius: 999,
+    border: isActive ? "1px solid #0f172a" : "1px solid #cbd5e1",
+    background: isActive ? "#0f172a" : "#ffffff",
+    color: isActive ? "#ffffff" : "#334155",
+    fontSize: 13,
+    lineHeight: 1.3,
+    fontWeight: 700,
+    cursor: "pointer",
+  };
+}
+
+const operationsSortControlStyle = {
+  display: "grid",
+  gap: 6,
+  minWidth: 180,
+};
+
+const operationsSummaryGridStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+  gap: 12,
+};
+
+const operationsSummaryCardStyle = {
+  border: "1px solid #e2e8f0",
+  borderRadius: 20,
+  background: "#f8fafc",
+  padding: "16px 18px",
+  display: "grid",
+  gap: 8,
+};
+
+const operationsSummaryLabelStyle = {
+  color: "#64748b",
+  fontSize: 12,
+  lineHeight: 1.4,
+  fontWeight: 700,
+  letterSpacing: "0.08em",
+  textTransform: "uppercase",
+};
+
+const operationsSummaryValueStyle = {
+  color: "#0f172a",
+  fontSize: 28,
+  lineHeight: 1.1,
+  fontWeight: 700,
+};
+
+const operationsQueueGridStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
+  gap: 16,
+  alignItems: "start",
+};
+
+const operationsQueueColumnStyle = {
+  display: "grid",
+  gap: 14,
+  alignContent: "start",
+};
+
+const operationsQueueHeaderStyle = {
+  display: "grid",
+  gap: 6,
+};
+
+const operationsQueueMetaStyle = {
+  color: "#64748b",
+  fontSize: 14,
+  lineHeight: 1.6,
+};
+
+const operationsBucketSectionStyle = {
+  display: "grid",
+  gap: 12,
+};
+
+const operationsBucketHeaderStyle = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: 12,
+};
+
+const operationsBucketTitleStyle = {
+  fontSize: 15,
+  lineHeight: 1.4,
+  fontWeight: 700,
+  color: "#0f172a",
+};
+
+const operationsBucketCountStyle = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  minWidth: 34,
+  height: 34,
+  padding: "0 10px",
+  borderRadius: 999,
+  background: "#e2e8f0",
+  color: "#0f172a",
+  fontSize: 13,
+  fontWeight: 700,
+};
+
+const operationsCardListStyle = {
+  display: "grid",
+  gap: 12,
+};
+
+function operationsCardStyle(urgency = "none", isSelected = false) {
+  const borderColor =
+    urgency === "high"
+      ? "#fdba74"
+      : urgency === "medium"
+        ? "#cbd5e1"
+        : urgency === "low"
+          ? "#d7e8dc"
+          : "#e2e8f0";
+
+  return {
+    border: isSelected ? "2px solid #0f172a" : `1px solid ${borderColor}`,
+    borderRadius: 22,
+    background: "#ffffff",
+    padding: 18,
+    display: "grid",
+    gap: 12,
+    boxShadow: isSelected ? "0 0 0 2px rgba(15, 23, 42, 0.08)" : "none",
+  };
+}
+
+const operationsCardHeaderStyle = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "start",
+  gap: 12,
+};
+
+const operationsCardNameStyle = {
+  color: "#0f172a",
+  fontSize: 18,
+  lineHeight: 1.2,
+  fontWeight: 700,
+};
+
+const operationsCardMetaStyle = {
+  color: "#64748b",
+  fontSize: 14,
+  lineHeight: 1.6,
+  marginTop: 4,
+};
+
+const operationsBadgeRowStyle = {
+  display: "flex",
+  gap: 8,
+  flexWrap: "wrap",
+  alignItems: "center",
+};
+
+function operationsBucketBadgeStyle(type = "production") {
+  return {
+    display: "inline-flex",
+    alignItems: "center",
+    borderRadius: 999,
+    padding: "7px 10px",
+    background: type === "production" ? "#eef2ff" : "#ecfdf5",
+    color: type === "production" ? "#0f172a" : "#166534",
+    fontSize: 12,
+    lineHeight: 1.3,
+    fontWeight: 700,
+  };
+}
+
+function operationsUrgencyBadgeStyle(urgency = "none") {
+  if (urgency === "high") {
+    return {
+      display: "inline-flex",
+      alignItems: "center",
+      borderRadius: 999,
+      padding: "7px 10px",
+      background: "#fff7ed",
+      color: "#9a3412",
+      fontSize: 12,
+      lineHeight: 1.3,
+      fontWeight: 700,
+    };
+  }
+
+  if (urgency === "medium") {
+    return {
+      display: "inline-flex",
+      alignItems: "center",
+      borderRadius: 999,
+      padding: "7px 10px",
+      background: "#eff6ff",
+      color: "#1d4ed8",
+      fontSize: 12,
+      lineHeight: 1.3,
+      fontWeight: 700,
+    };
+  }
+
+  if (urgency === "low") {
+    return {
+      display: "inline-flex",
+      alignItems: "center",
+      borderRadius: 999,
+      padding: "7px 10px",
+      background: "#ecfdf5",
+      color: "#166534",
+      fontSize: 12,
+      lineHeight: 1.3,
+      fontWeight: 700,
+    };
+  }
+
+  return {
+    display: "inline-flex",
+    alignItems: "center",
+    borderRadius: 999,
+    padding: "7px 10px",
+    background: "#f8fafc",
+    color: "#475569",
+    fontSize: 12,
+    lineHeight: 1.3,
+    fontWeight: 700,
+  };
+}
+
+const operationsActionLabelStyle = {
+  color: "#64748b",
+  fontSize: 11,
+  letterSpacing: "0.08em",
+  textTransform: "uppercase",
+  fontWeight: 700,
+};
+
+const operationsActionTextStyle = {
+  color: "#0f172a",
+  fontSize: 18,
+  lineHeight: 1.45,
+  fontWeight: 700,
+};
+
+const operationsReasonTextStyle = {
+  color: "#475569",
+  fontSize: 14,
+  lineHeight: 1.6,
+};
+
+const operationsCardActionRowStyle = {
+  display: "flex",
+  justifyContent: "flex-start",
+};
+
+const operationsEmptyStateStyle = {
+  border: "1px dashed #cbd5e1",
+  borderRadius: 22,
+  background: "#f8fafc",
+  padding: 18,
+  color: "#64748b",
+  fontSize: 14,
+  lineHeight: 1.6,
+};
+
 const workflowHeaderPanelStyle = {
   background: "#f8fafc",
   border: "1px solid #e2e8f0",
@@ -4232,6 +7332,265 @@ const workflowSectionHeaderStyle = {
   flexWrap: "wrap",
   marginBottom: 12,
 };
+
+const contentManagementOverviewGridStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+  gap: 10,
+};
+
+function contentManagementMetricCardStyle(tone = "neutral", isSubtleSignal = false) {
+  if (tone === "success") {
+    return {
+      display: "grid",
+      gap: 7,
+      padding: "13px 15px",
+      borderRadius: 18,
+      border: isSubtleSignal ? "1px solid #d7e8dc" : "1px solid #dfe9e2",
+      background: isSubtleSignal ? "#fbfefc" : "#f8fbf9",
+      color: "#1f5137",
+      minWidth: 0,
+      alignContent: "start",
+    };
+  }
+
+  if (tone === "warn") {
+    return {
+      display: "grid",
+      gap: 7,
+      padding: "13px 15px",
+      borderRadius: 18,
+      border: isSubtleSignal ? "1px solid #efe0cf" : "1px solid #f1e4d5",
+      background: isSubtleSignal ? "#fffdfa" : "#fffaf4",
+      color: "#8a4b16",
+      minWidth: 0,
+      alignContent: "start",
+    };
+  }
+
+  return {
+    display: "grid",
+    gap: 7,
+    padding: "13px 15px",
+    borderRadius: 18,
+    border: "1px solid #e2e8f0",
+    background: "#fcfdff",
+    color: "#334155",
+    minWidth: 0,
+    alignContent: "start",
+  };
+}
+
+function contentManagementMetricLabelStyle(tone = "neutral") {
+  return {
+    fontSize: 11,
+    letterSpacing: "0.08em",
+    textTransform: "uppercase",
+    fontWeight: 700,
+    opacity: 1,
+    color:
+      tone === "success"
+        ? "#355b48"
+        : tone === "warn"
+          ? "#7c4a15"
+          : "#475569",
+  };
+}
+
+const contentManagementMetricValueStyle = {
+  fontSize: 16,
+  lineHeight: 1.3,
+  fontWeight: 700,
+  minWidth: 0,
+};
+
+const contentManagementMetricMetaTextStyle = {
+  fontSize: 13,
+  lineHeight: 1.5,
+};
+
+const contentManagementAssetListStyle = {
+  display: "flex",
+  flexWrap: "wrap",
+  gap: 6,
+  marginTop: 2,
+};
+
+function contentManagementAssetBadgeStyle(isComplete = false) {
+  return {
+    display: "inline-flex",
+    alignItems: "center",
+    borderRadius: 999,
+    padding: "6px 10px",
+    fontSize: 12,
+    fontWeight: 700,
+    border: isComplete ? "1px solid #d7e8dc" : "1px solid #e2e8f0",
+    background: isComplete ? "#f9fdf9" : "#ffffff",
+    color: isComplete ? "#2f6a47" : "#64748b",
+  };
+}
+
+const contentManagementActionGridStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+  gap: 10,
+};
+
+const contentStudioDraftSectionStyle = {
+  marginTop: 14,
+  display: "grid",
+  gap: 14,
+};
+
+const contentStudioDraftHeaderStyle = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "start",
+  gap: 12,
+  flexWrap: "wrap",
+};
+
+const contentStudioDraftGridStyle = {
+  display: "grid",
+  gridTemplateColumns: "minmax(0, 1fr)",
+  gap: 14,
+};
+
+const contentStudioStoryGridStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+  gap: 14,
+};
+
+const contentStudioReadonlyFieldStyle = {
+  ...inputStyle,
+  background: "#f8fafc",
+  color: "#334155",
+  resize: "none",
+};
+
+const contentStudioSectionHeaderStyle = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "start",
+  gap: 12,
+  flexWrap: "wrap",
+  marginBottom: 12,
+};
+
+const contentStudioSectionActionsStyle = {
+  display: "flex",
+  gap: 8,
+  flexWrap: "wrap",
+  alignItems: "center",
+};
+
+const contentStudioFieldStackStyle = {
+  display: "grid",
+  gap: 14,
+};
+
+const contentStudioChoiceListStyle = {
+  display: "grid",
+  gap: 10,
+  marginTop: 14,
+};
+
+const contentStudioChoiceCardStyle = {
+  border: "1px solid #e2e8f0",
+  borderRadius: 16,
+  background: "#f8fafc",
+  padding: "12px 14px",
+  display: "grid",
+  gap: 6,
+};
+
+const contentStudioChoiceEditorCardStyle = {
+  border: "1px solid #e2e8f0",
+  borderRadius: 16,
+  background: "#ffffff",
+  padding: "12px 14px",
+  display: "grid",
+  gap: 12,
+};
+
+const contentStudioChoiceLabelStyle = {
+  fontSize: 12,
+  letterSpacing: "0.08em",
+  textTransform: "uppercase",
+  color: "#64748b",
+  fontWeight: 700,
+};
+
+const contentStudioChoiceResultStyle = {
+  color: "#334155",
+  fontSize: 14,
+  lineHeight: 1.6,
+};
+
+const contentManagementGuidanceStyle = {
+  display: "grid",
+  gap: 4,
+  padding: "10px 12px",
+  borderRadius: 14,
+  border: "1px solid #e2e8f0",
+  background: "#ffffff",
+};
+
+const contentManagementGuidanceLabelStyle = {
+  fontSize: 11,
+  letterSpacing: "0.08em",
+  textTransform: "uppercase",
+  color: "#64748b",
+  fontWeight: 700,
+};
+
+const contentManagementGuidanceTextStyle = {
+  color: "#334155",
+  fontSize: 13,
+  lineHeight: 1.5,
+  fontWeight: 500,
+};
+
+function contentManagementActionButtonStyle(variant = "primary", isDisabled = false) {
+  const baseStyle =
+    variant === "secondary"
+      ? {
+          ...secondaryButton,
+          width: "100%",
+          padding: "12px 14px",
+          fontSize: 14,
+          fontWeight: 700,
+        }
+      : {
+          ...primaryButton,
+          width: "100%",
+          padding: "12px 14px",
+          fontSize: 14,
+          fontWeight: 700,
+        };
+
+  return isDisabled ? disabledActionStyle(baseStyle) : baseStyle;
+}
+
+function contentStudioSectionButtonStyle(variant = "secondary", isDisabled = false) {
+  const baseStyle =
+    variant === "primary"
+      ? {
+          ...primaryButton,
+          padding: "10px 14px",
+          fontSize: 14,
+          borderRadius: 14,
+        }
+      : {
+          ...secondaryButton,
+          padding: "10px 14px",
+          fontSize: 14,
+          borderRadius: 14,
+        };
+
+  return isDisabled ? disabledActionStyle(baseStyle) : baseStyle;
+}
 
 const pipelineProgressTrackStyle = {
   height: 8,
