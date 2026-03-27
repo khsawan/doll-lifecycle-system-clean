@@ -229,6 +229,27 @@ The admin content management layer now tracks three management statuses for the 
 - V1 public scenes are `Welcome`, `Story`, `Play`, and `Meet Friends`.
 - The public experience is separate from admin workflow logic and should not depend on `pipeline_state`, readiness, or commerce logic at render time.
 
+### Phase C1 — Ambient Experience (Complete)
+
+- Floating particle system (background-aware, layered gradients)
+- Character breathing animation
+- Scene entrance animation
+- Play choice hover interaction
+- Universe-aware atmosphere system
+
+### Phase C2-PREP — Audio Readiness (Complete)
+
+- `audio_urls` JSONB field added to `dolls` table
+- Public audio button shell (non-functional)
+- System ready for future audio playback integration
+
+### Phase D1 — Content Variation Engine (Next Phase)
+
+- AI generation will return 2–3 variations instead of a single output
+- Operator selects best version instead of regenerating blindly
+- Reduces review time and improves content quality
+- No external dependencies required
+
 ## Future Phases
 
 - Phase 10: Universe layer for higher-level world and theme structures across multiple dolls.
