@@ -401,15 +401,21 @@ export default function V1ExperienceShell({ experience }) {
 
         <div style={sceneFrameStyle(isSceneVisible)}>
           <div
-            className="shellSceneContentHost"
-            data-scene-type={currentScene?.type || ""}
-            style={sceneMotionLayerStyle}
+            key={currentScene?.id || `${currentScene?.type || "scene"}-${sceneIndex}`}
+            className="shellSceneEntrance"
+            style={sceneEntranceLayerStyle}
           >
-            <SceneRenderer
-              scene={currentScene}
-              experience={experience}
-              isActive={!isTransitioning && isSceneVisible}
-            />
+            <div
+              className="shellSceneContentHost"
+              data-scene-type={currentScene?.type || ""}
+              style={sceneMotionLayerStyle}
+            >
+              <SceneRenderer
+                scene={currentScene}
+                experience={experience}
+                isActive={!isTransitioning && isSceneVisible}
+              />
+            </div>
           </div>
         </div>
       </div>
@@ -469,6 +475,18 @@ export default function V1ExperienceShell({ experience }) {
           }
         }
 
+        @keyframes shellSceneEntrance {
+          0% {
+            opacity: 0;
+            transform: translateY(20px);
+          }
+
+          100% {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+
         @keyframes shellAmbientFloat {
           0% {
             transform: translate3d(0, 0, 0) scale(0.96);
@@ -512,6 +530,12 @@ export default function V1ExperienceShell({ experience }) {
           animation: shellAmbientFloat var(--ambient-duration) ease-in-out infinite;
           animation-delay: var(--ambient-delay);
           transform: translate3d(0, 0, 0);
+        }
+
+        .shellSceneEntrance {
+          min-height: 100svh;
+          animation: shellSceneEntrance 0.6s ease-out both;
+          will-change: transform, opacity;
         }
 
         @media (max-width: 720px) {
@@ -591,6 +615,10 @@ const ambientLayerStyle = {
   overflow: "hidden",
   pointerEvents: "none",
   zIndex: 1,
+};
+
+const sceneEntranceLayerStyle = {
+  minHeight: "100svh",
 };
 
 const sceneMotionLayerStyle = {
