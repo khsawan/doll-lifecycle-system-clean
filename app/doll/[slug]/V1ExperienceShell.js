@@ -82,10 +82,161 @@ const SHELL_AMBIENT_PARTICLES = [
   },
 ];
 
+const DEFAULT_AMBIENT_THEME = {
+  mode: "default",
+  lightCoreColor: "rgba(255, 255, 255, 0.96)",
+  lightCoreSoftColor: "rgba(255, 255, 255, 0.38)",
+  haloShadow: "0 0 16px rgba(255, 255, 255, 0.1)",
+  coreColor: "rgba(255, 255, 255, 0.82)",
+  midColor: "rgba(255, 248, 240, 0.62)",
+  edgeColor: "rgba(255, 239, 220, 0.24)",
+  tailColor: "rgba(255, 239, 220, 0)",
+  boxShadow: "0 12px 28px rgba(255, 248, 240, 0.11)",
+  widthScale: "1",
+  heightScale: "1",
+  radius: "999px",
+  rotate: "0deg",
+  blur: "0px",
+  sizeScale: 1,
+  durationScale: 1,
+  driftScale: 1,
+  opacityScale: 1.1,
+};
+
+const UNIVERSE_AMBIENT_THEMES = {
+  farm: {
+    ...DEFAULT_AMBIENT_THEME,
+    mode: "farm",
+    coreColor: "rgba(255, 247, 211, 0.9)",
+    midColor: "rgba(252, 211, 77, 0.58)",
+    edgeColor: "rgba(245, 158, 11, 0.22)",
+    tailColor: "rgba(245, 158, 11, 0)",
+    boxShadow: "0 14px 30px rgba(217, 119, 6, 0.14)",
+    widthScale: "0.82",
+    heightScale: "1.24",
+    radius: "58% 42% 60% 40% / 46% 54% 48% 52%",
+    rotate: "18deg",
+    sizeScale: 1.02,
+    durationScale: 1.04,
+    driftScale: 0.94,
+    opacityScale: 1.13,
+  },
+  forest: {
+    ...DEFAULT_AMBIENT_THEME,
+    mode: "forest",
+    coreColor: "rgba(220, 252, 231, 0.92)",
+    midColor: "rgba(134, 239, 172, 0.6)",
+    edgeColor: "rgba(34, 197, 94, 0.24)",
+    tailColor: "rgba(34, 197, 94, 0)",
+    boxShadow: "0 14px 30px rgba(21, 128, 61, 0.16)",
+    widthScale: "0.72",
+    heightScale: "1.34",
+    radius: "62% 38% 64% 36% / 42% 58% 44% 56%",
+    rotate: "28deg",
+    sizeScale: 0.98,
+    durationScale: 1.08,
+    driftScale: 0.9,
+    opacityScale: 1.17,
+  },
+  night: {
+    ...DEFAULT_AMBIENT_THEME,
+    mode: "night",
+    lightCoreColor: "rgba(255, 255, 255, 0.98)",
+    lightCoreSoftColor: "rgba(232, 240, 255, 0.46)",
+    haloShadow: "0 0 20px rgba(214, 225, 255, 0.18)",
+    coreColor: "rgba(255, 255, 255, 0.98)",
+    midColor: "rgba(224, 231, 255, 0.7)",
+    edgeColor: "rgba(191, 219, 254, 0.3)",
+    tailColor: "rgba(191, 219, 254, 0)",
+    boxShadow: "0 0 20px rgba(191, 219, 254, 0.36)",
+    widthScale: "0.42",
+    heightScale: "0.42",
+    radius: "999px",
+    rotate: "0deg",
+    sizeScale: 0.56,
+    durationScale: 1.46,
+    driftScale: 0.62,
+    opacityScale: 1.22,
+  },
+  beach: {
+    ...DEFAULT_AMBIENT_THEME,
+    mode: "beach",
+    coreColor: "rgba(240, 249, 255, 0.92)",
+    midColor: "rgba(186, 230, 253, 0.6)",
+    edgeColor: "rgba(125, 211, 252, 0.28)",
+    tailColor: "rgba(125, 211, 252, 0)",
+    boxShadow:
+      "inset 0 0 0 1px rgba(255, 255, 255, 0.34), 0 12px 28px rgba(14, 165, 233, 0.16)",
+    widthScale: "1",
+    heightScale: "1",
+    radius: "999px",
+    rotate: "0deg",
+    sizeScale: 0.96,
+    durationScale: 1.06,
+    driftScale: 0.88,
+    opacityScale: 1.13,
+  },
+};
+
+function scaleCssValue(value, scale = 1) {
+  if (!value || scale === 1) {
+    return value;
+  }
+
+  const match = String(value).trim().match(/^(-?\d*\.?\d+)([a-z%]+)$/i);
+
+  if (!match) {
+    return value;
+  }
+
+  const [, rawNumber, unit] = match;
+  const scaled = Number(rawNumber) * scale;
+  return `${Number(scaled.toFixed(3))}${unit}`;
+}
+
+function scaleOpacity(value, scale = 1) {
+  const numericValue = Number(value);
+
+  if (!Number.isFinite(numericValue)) {
+    return value;
+  }
+
+  return String(Math.min(1, Math.max(0.16, numericValue * scale)));
+}
+
+function resolveAmbientTheme(universeName) {
+  const normalizedUniverseName = String(universeName || "").trim().toLowerCase();
+
+  if (normalizedUniverseName.includes("farm")) {
+    return UNIVERSE_AMBIENT_THEMES.farm;
+  }
+
+  if (normalizedUniverseName.includes("forest")) {
+    return UNIVERSE_AMBIENT_THEMES.forest;
+  }
+
+  if (normalizedUniverseName.includes("beach")) {
+    return UNIVERSE_AMBIENT_THEMES.beach;
+  }
+
+  if (
+    normalizedUniverseName.includes("night") ||
+    normalizedUniverseName.includes("dream")
+  ) {
+    return UNIVERSE_AMBIENT_THEMES.night;
+  }
+
+  return DEFAULT_AMBIENT_THEME;
+}
+
 export default function V1ExperienceShell({ experience }) {
   const enabledScenes = useMemo(
     () => (experience?.scenes || []).filter((scene) => scene?.enabled),
     [experience]
+  );
+  const ambientTheme = useMemo(
+    () => resolveAmbientTheme(experience?.universe?.name),
+    [experience?.universe?.name]
   );
   const [sceneIndex, setSceneIndex] = useState(0);
   const [isSceneVisible, setIsSceneVisible] = useState(true);
@@ -380,7 +531,11 @@ export default function V1ExperienceShell({ experience }) {
       />
 
       <div style={sceneViewportStyle}>
-        <div aria-hidden="true" style={ambientLayerStyle}>
+        <div
+          aria-hidden="true"
+          data-universe-atmosphere={ambientTheme.mode}
+          style={ambientLayerStyle(ambientTheme)}
+        >
           {SHELL_AMBIENT_PARTICLES.map((particle, index) => (
             <span
               key={`shell-ambient-particle-${index}`}
@@ -388,12 +543,15 @@ export default function V1ExperienceShell({ experience }) {
               style={{
                 "--ambient-left": particle.left,
                 "--ambient-top": particle.top,
-                "--ambient-size": particle.size,
-                "--ambient-duration": particle.duration,
-                "--ambient-delay": particle.delay,
-                "--ambient-drift-x": particle.driftX,
-                "--ambient-drift-y": particle.driftY,
-                "--ambient-opacity": particle.opacity,
+                "--ambient-size": scaleCssValue(particle.size, ambientTheme.sizeScale),
+                "--ambient-duration": scaleCssValue(
+                  particle.duration,
+                  ambientTheme.durationScale
+                ),
+                "--ambient-delay": scaleCssValue(particle.delay, ambientTheme.durationScale),
+                "--ambient-drift-x": scaleCssValue(particle.driftX, ambientTheme.driftScale),
+                "--ambient-drift-y": scaleCssValue(particle.driftY, ambientTheme.driftScale),
+                "--ambient-opacity": scaleOpacity(particle.opacity, ambientTheme.opacityScale),
               }}
             />
           ))}
@@ -440,10 +598,42 @@ export default function V1ExperienceShell({ experience }) {
           <div style={topBarChipStyle}>
             <div style={brandStyle}>MAILLE & MERVEILLE</div>
           </div>
-          <div style={topBarChipStyle}>
-            <div style={sceneLabelStyle}>
-              {currentScene?.title || "Experience"}{" "}
-              {enabledScenes.length ? `${sceneIndex + 1}/${enabledScenes.length}` : ""}
+          <div style={topBarMetaStyle}>
+            <button
+              type="button"
+              className="audioComingSoonButton"
+              aria-label="Audio coming soon"
+              title="Audio coming soon"
+              style={audioButtonStyle}
+            >
+              <span aria-hidden="true" style={audioIconWrapStyle}>
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  xmlns="http://www.w3.org/2000/svg"
+                  style={audioIconStyle}
+                >
+                  <path
+                    d="M5 14V10C5 9.44772 5.44772 9 6 9H9.2L13.2 5.8C13.8544 5.27651 14.8239 5.74244 14.8239 6.58067V17.4193C14.8239 18.2576 13.8544 18.7235 13.2 18.2L9.2 15H6C5.44772 15 5 14.5523 5 14Z"
+                    stroke="currentColor"
+                    strokeWidth="1.7"
+                    strokeLinejoin="round"
+                  />
+                  <path
+                    d="M17.25 9.25C18.4186 10.3164 19 11.2361 19 12.5C19 13.7639 18.4186 14.6836 17.25 15.75"
+                    stroke="currentColor"
+                    strokeWidth="1.7"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              </span>
+              <span style={audioButtonLabelStyle}>Audio</span>
+            </button>
+            <div style={topBarChipStyle}>
+              <div style={sceneLabelStyle}>
+                {currentScene?.title || "Experience"}{" "}
+                {enabledScenes.length ? `${sceneIndex + 1}/${enabledScenes.length}` : ""}
+              </div>
             </div>
           </div>
         </div>
@@ -489,7 +679,7 @@ export default function V1ExperienceShell({ experience }) {
 
         @keyframes shellAmbientFloat {
           0% {
-            transform: translate3d(0, 0, 0) scale(0.96);
+            transform: translate3d(0, 0, 0) rotate(var(--ambient-rotate)) scale(0.96);
             opacity: calc(var(--ambient-opacity) * 0.84);
           }
 
@@ -499,12 +689,14 @@ export default function V1ExperienceShell({ experience }) {
                 calc(var(--ambient-drift-y) * 0.58),
                 0
               )
+              rotate(var(--ambient-rotate))
               scale(1);
             opacity: var(--ambient-opacity);
           }
 
           100% {
             transform: translate3d(var(--ambient-drift-x), var(--ambient-drift-y), 0)
+              rotate(var(--ambient-rotate))
               scale(1.04);
             opacity: calc(var(--ambient-opacity) * 0.9);
           }
@@ -514,22 +706,39 @@ export default function V1ExperienceShell({ experience }) {
           position: absolute;
           left: var(--ambient-left);
           top: var(--ambient-top);
-          width: var(--ambient-size);
-          height: var(--ambient-size);
-          border-radius: 999px;
+          width: calc(var(--ambient-size) * var(--ambient-width-scale));
+          height: calc(var(--ambient-size) * var(--ambient-height-scale));
+          border-radius: var(--ambient-radius);
           background: radial-gradient(
-            circle,
-            rgba(255, 255, 255, 0.72) 0%,
-            rgba(255, 248, 240, 0.5) 36%,
-            rgba(255, 239, 220, 0.18) 62%,
-            rgba(255, 239, 220, 0) 80%
+            circle at 36% 32%,
+            var(--ambient-light-core-color) 0%,
+            var(--ambient-light-core-soft-color) 20%,
+            rgba(255, 255, 255, 0) 40%
+          ),
+          radial-gradient(
+            circle at 50% 50%,
+            rgba(255, 255, 255, 0.2) 0%,
+            rgba(255, 255, 255, 0.08) 32%,
+            rgba(255, 255, 255, 0) 58%
+          ),
+          radial-gradient(
+            circle at 40% 35%,
+            var(--ambient-core-color) 0%,
+            var(--ambient-mid-color) 46%,
+            var(--ambient-edge-color) 70%,
+            var(--ambient-tail-color) 100%
           );
           opacity: var(--ambient-opacity);
-          filter: none;
+          filter: blur(var(--ambient-blur));
+          box-shadow:
+            0 0 14px rgba(255, 255, 255, 0.08),
+            var(--ambient-halo-shadow),
+            var(--ambient-box-shadow);
           will-change: transform, opacity;
           animation: shellAmbientFloat var(--ambient-duration) ease-in-out infinite;
           animation-delay: var(--ambient-delay);
-          transform: translate3d(0, 0, 0);
+          transform: translate3d(0, 0, 0) rotate(var(--ambient-rotate));
+          transform-origin: center center;
         }
 
         .shellSceneEntrance {
@@ -538,10 +747,27 @@ export default function V1ExperienceShell({ experience }) {
           will-change: transform, opacity;
         }
 
+        .audioComingSoonButton {
+          transition:
+            transform 0.22s ease-out,
+            box-shadow 0.22s ease-out,
+            background 0.22s ease-out,
+            border-color 0.22s ease-out;
+        }
+
+        @media (hover: hover) and (pointer: fine) {
+          .audioComingSoonButton:hover {
+            transform: translateY(-1px);
+            background: rgba(15, 23, 42, 0.42) !important;
+            border-color: rgba(255, 255, 255, 0.24) !important;
+            box-shadow: 0 12px 24px rgba(15, 23, 42, 0.14);
+          }
+        }
+
         @media (max-width: 720px) {
           .shellAmbientParticle {
-            width: calc(var(--ambient-size) * 0.9);
-            height: calc(var(--ambient-size) * 0.9);
+            width: calc(var(--ambient-size) * var(--ambient-width-scale) * 0.9);
+            height: calc(var(--ambient-size) * var(--ambient-height-scale) * 0.9);
           }
         }
       `}</style>
@@ -624,13 +850,28 @@ function sceneFrameStyle(isVisible) {
   };
 }
 
-const ambientLayerStyle = {
-  position: "absolute",
-  inset: 0,
-  overflow: "hidden",
-  pointerEvents: "none",
-  zIndex: 1,
-};
+function ambientLayerStyle(theme) {
+  return {
+    position: "absolute",
+    inset: 0,
+    overflow: "hidden",
+    pointerEvents: "none",
+    zIndex: 1,
+    "--ambient-light-core-color": theme.lightCoreColor,
+    "--ambient-light-core-soft-color": theme.lightCoreSoftColor,
+    "--ambient-halo-shadow": theme.haloShadow,
+    "--ambient-core-color": theme.coreColor,
+    "--ambient-mid-color": theme.midColor,
+    "--ambient-edge-color": theme.edgeColor,
+    "--ambient-tail-color": theme.tailColor,
+    "--ambient-box-shadow": theme.boxShadow,
+    "--ambient-width-scale": theme.widthScale,
+    "--ambient-height-scale": theme.heightScale,
+    "--ambient-radius": theme.radius,
+    "--ambient-rotate": theme.rotate,
+    "--ambient-blur": theme.blur,
+  };
+}
 
 const sceneEntranceLayerStyle = {
   minHeight: "100svh",
@@ -679,12 +920,57 @@ const topBarInnerStyle = {
   margin: "0 auto",
 };
 
+const topBarMetaStyle = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "flex-end",
+  gap: 10,
+};
+
 const topBarChipStyle = {
   padding: "9px 12px",
   borderRadius: 999,
   background: "rgba(15, 23, 42, 0.28)",
   border: "1px solid rgba(255, 255, 255, 0.14)",
   backdropFilter: "blur(8px)",
+};
+
+const audioButtonStyle = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 8,
+  padding: "9px 11px",
+  borderRadius: 999,
+  border: "1px solid rgba(255, 255, 255, 0.16)",
+  background: "rgba(15, 23, 42, 0.32)",
+  color: "#ffffff",
+  cursor: "pointer",
+  pointerEvents: "auto",
+  backdropFilter: "blur(8px)",
+  boxShadow: "0 8px 18px rgba(15, 23, 42, 0.1)",
+};
+
+const audioIconWrapStyle = {
+  width: 18,
+  height: 18,
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  opacity: 0.94,
+};
+
+const audioIconStyle = {
+  width: "100%",
+  height: "100%",
+  display: "block",
+};
+
+const audioButtonLabelStyle = {
+  fontSize: 11,
+  letterSpacing: "0.1em",
+  textTransform: "uppercase",
+  fontWeight: 700,
+  whiteSpace: "nowrap",
 };
 
 const brandStyle = {
