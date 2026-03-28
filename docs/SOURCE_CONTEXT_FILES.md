@@ -8,6 +8,43 @@ This document identifies the files that should be used as source context when ma
 - This applies to Codex, ChatGPT, and human collaborators.
 - For ChatGPT or any external assistant, this file is only useful if it is provided in the working context or shared in the conversation.
 
+## CODING WORKFLOW RULE (MANDATORY)
+
+This project follows a strict AI-assisted development workflow:
+
+- ChatGPT acts as the Architect and Prompt Designer
+- Codex acts as the Executor (developer)
+
+### Execution Model
+
+For every implementation step:
+
+1. ChatGPT must provide a complete, ready-to-use Codex prompt  
+2. The user copies the prompt exactly as provided  
+3. The user runs the prompt in Codex without modification  
+4. The user reports the result back to ChatGPT  
+5. No manual rewriting, interpretation, or partial execution is allowed  
+
+### Rules
+
+- Never provide partial instructions when code execution is required  
+- Never require the user to translate instructions into code  
+- Every code change must be delivered as a Codex-ready prompt  
+- Prompts must include:
+  - exact file paths  
+  - exact actions  
+  - constraints (what must NOT be changed)  
+  - expected output format  
+
+### Purpose
+
+This ensures:
+
+- zero ambiguity in execution  
+- consistent code quality  
+- reduced human error  
+- faster iteration cycles  
+
 ## Usage
 
 - Always include all `CRITICAL` files for structural or system-level work.
