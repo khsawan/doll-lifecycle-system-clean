@@ -468,6 +468,12 @@ The admin content management layer now tracks three management statuses for the 
 - `commerce_status`
 - QR logic
 - public doll route behavior
+- Variation selection UI is unified across story, content pack, and social generation panels
+- Each variation is presented as a selectable card with consistent layout, spacing, and typography
+- Selected variation state is visually highlighted with clear indicators (badge, styling, and action state)
+- Variation previews are trimmed for readability and consistent visual balance
+- Interaction feedback (hover and click states) improves operator clarity and usability
+- The variation panels are visually secondary to the main editor to preserve focus on final content
 
 ## Future Phases
 
