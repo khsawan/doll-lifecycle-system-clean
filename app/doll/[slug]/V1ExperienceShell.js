@@ -3,11 +3,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import SceneRenderer from "./SceneRenderer";
 
-const AMBIENT_AUDIO_SRC = "/audio/ambient-placeholder.mp3";
-const AMBIENT_VOLUME = 0.28;
-const AMBIENT_DUCKED_VOLUME = 0.12;
-const INTRO_VOLUME = 1;
-const INTRO_FADE_OUT_MS = 240;
 const SCENE_TRANSITION_MS = 300;
 const SHELL_AMBIENT_PARTICLES = [
   {
@@ -229,6 +224,124 @@ function resolveAmbientTheme(universeName) {
   return DEFAULT_AMBIENT_THEME;
 }
 
+function normalizeAudioUrl(value) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function getExperienceAudioUrls(experience) {
+  return (
+    experience?.doll?.audio_urls ??
+    experience?.doll?.audioUrls ??
+    experience?.audio_urls ??
+    experience?.audioUrls ??
+    null
+  );
+}
+
+function resolveAmbientUniverseAudioUrl(experience) {
+  const audioUrls = getExperienceAudioUrls(experience);
+
+  if (!audioUrls || typeof audioUrls !== "object" || Array.isArray(audioUrls)) {
+    return "";
+  }
+
+  return normalizeAudioUrl(audioUrls?.ambient?.universe);
+}
+
+function resolveWelcomeSceneAudioUrl(experience) {
+  const audioUrls = getExperienceAudioUrls(experience);
+
+  if (!audioUrls || typeof audioUrls !== "object" || Array.isArray(audioUrls)) {
+    return "";
+  }
+
+  return normalizeAudioUrl(audioUrls?.scene?.welcome);
+}
+
+function resolveStorySceneAudioUrl(experience) {
+  const audioUrls = getExperienceAudioUrls(experience);
+
+  if (!audioUrls || typeof audioUrls !== "object" || Array.isArray(audioUrls)) {
+    return "";
+  }
+
+  return normalizeAudioUrl(audioUrls?.scene?.story);
+}
+
+function resolveIntroVoiceAudioUrl(experience) {
+  const audioUrls = getExperienceAudioUrls(experience);
+
+  if (!audioUrls || typeof audioUrls !== "object" || Array.isArray(audioUrls)) {
+    return "";
+  }
+
+  const layeredIntroUrl = normalizeAudioUrl(audioUrls?.voice?.intro);
+
+  if (layeredIntroUrl) {
+    return layeredIntroUrl;
+  }
+
+  return normalizeAudioUrl(audioUrls?.intro);
+}
+
+function resolveStoryVoiceAudioUrl(experience) {
+  const audioUrls = getExperienceAudioUrls(experience);
+
+  if (!audioUrls || typeof audioUrls !== "object" || Array.isArray(audioUrls)) {
+    return "";
+  }
+
+  const layeredStoryUrl = normalizeAudioUrl(audioUrls?.voice?.story);
+
+  if (layeredStoryUrl) {
+    return layeredStoryUrl;
+  }
+
+  return normalizeAudioUrl(audioUrls?.story);
+}
+
+function resolveStoryPageVoiceAudioUrl(experience, pageIndex) {
+  const audioUrls = getExperienceAudioUrls(experience);
+
+  if (!audioUrls || typeof audioUrls !== "object" || Array.isArray(audioUrls)) {
+    return "";
+  }
+
+  const storyPageUrls = Array.isArray(audioUrls?.voice?.story_pages)
+    ? audioUrls.voice.story_pages
+    : [];
+  const pageLevelStoryUrl = normalizeAudioUrl(storyPageUrls?.[pageIndex]);
+
+  if (pageLevelStoryUrl) {
+    return pageLevelStoryUrl;
+  }
+
+  return resolveStoryVoiceAudioUrl(experience);
+}
+
+function resolveStoryPageVoiceAudioSource(experience, pageIndex) {
+  const audioUrls = getExperienceAudioUrls(experience);
+
+  if (!audioUrls || typeof audioUrls !== "object" || Array.isArray(audioUrls)) {
+    return "none";
+  }
+
+  const storyPageUrls = Array.isArray(audioUrls?.voice?.story_pages)
+    ? audioUrls.voice.story_pages
+    : [];
+  const pageLevelStoryUrl = normalizeAudioUrl(storyPageUrls?.[pageIndex]);
+
+  if (pageLevelStoryUrl) {
+    return "page";
+  }
+
+  if (normalizeAudioUrl(audioUrls?.voice?.story) || normalizeAudioUrl(audioUrls?.story)) {
+    return "fallback";
+  }
+
+  return "none";
+}
+
 export default function V1ExperienceShell({ experience }) {
   const enabledScenes = useMemo(
     () => (experience?.scenes || []).filter((scene) => scene?.enabled),
@@ -242,32 +355,107 @@ export default function V1ExperienceShell({ experience }) {
   const [isSceneVisible, setIsSceneVisible] = useState(true);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const ambientAudioRef = useRef(null);
+  const welcomeSceneAudioRef = useRef(null);
+  const storySceneAudioRef = useRef(null);
   const introAudioRef = useRef(null);
+  const storyAudioRef = useRef(null);
+  const previousStoryPageIndexRef = useRef(0);
   const fadeOutTimeoutRef = useRef(null);
   const fadeInTimeoutRef = useRef(null);
-  const introFadeFrameRef = useRef(null);
-  const introFadeInProgressRef = useRef(false);
-  const ambientStartedRef = useRef(false);
-  const introAttemptedRef = useRef(false);
-  const introPlayingRef = useRef(false);
-  const [hasInteracted, setHasInteracted] = useState(false);
-  const [ambientAudioFailed, setAmbientAudioFailed] = useState(false);
-  const [introAudioFailed, setIntroAudioFailed] = useState(false);
+  const [isAmbientAudioEnabled, setIsAmbientAudioEnabled] = useState(false);
+  const [isAmbientAudioPlaying, setIsAmbientAudioPlaying] = useState(false);
+  const [isWelcomeSceneAudioPlaying, setIsWelcomeSceneAudioPlaying] = useState(false);
+  const [isStorySceneAudioPlaying, setIsStorySceneAudioPlaying] = useState(false);
+  const [isIntroAudioPlaying, setIsIntroAudioPlaying] = useState(false);
+  const [isStoryAudioPlaying, setIsStoryAudioPlaying] = useState(false);
+  const [storyPageIndex, setStoryPageIndex] = useState(0);
+  const [isContinuousStoryNarrationEnabled, setIsContinuousStoryNarrationEnabled] =
+    useState(false);
+  const [isStoryPlaybackSessionActive, setIsStoryPlaybackSessionActive] = useState(false);
 
   const currentScene = enabledScenes[sceneIndex] || null;
   const isFirstScene = sceneIndex <= 0;
   const isLastScene = sceneIndex >= enabledScenes.length - 1;
-  const introAudioSrc = experience?.doll?.slug
-    ? `/audio/intro/${experience.doll.slug}.mp3`
-    : "";
-
-  useEffect(() => {
-    if (!ambientAudioRef.current) {
-      return;
-    }
-
-    ambientAudioRef.current.volume = AMBIENT_VOLUME;
-  }, []);
+  const ambientAudioSrc = useMemo(
+    () => resolveAmbientUniverseAudioUrl(experience),
+    [experience]
+  );
+  const welcomeSceneAudioSrc = useMemo(
+    () => resolveWelcomeSceneAudioUrl(experience),
+    [experience]
+  );
+  const storySceneAudioSrc = useMemo(
+    () => resolveStorySceneAudioUrl(experience),
+    [experience]
+  );
+  const introAudioSrc = useMemo(() => resolveIntroVoiceAudioUrl(experience), [experience]);
+  const storyAudioSrc = useMemo(
+    () => resolveStoryPageVoiceAudioUrl(experience, storyPageIndex),
+    [experience, storyPageIndex]
+  );
+  const storyAudioSourceType = useMemo(
+    () => resolveStoryPageVoiceAudioSource(experience, storyPageIndex),
+    [experience, storyPageIndex]
+  );
+  const isWelcomeScene = currentScene?.type === "welcome";
+  const isStoryScene = currentScene?.type === "story";
+  const shouldSuppressAmbientForVoice =
+    isIntroAudioPlaying ||
+    isStoryAudioPlaying ||
+    isWelcomeSceneAudioPlaying ||
+    isStorySceneAudioPlaying ||
+    (isStoryScene &&
+      isContinuousStoryNarrationEnabled &&
+      isStoryPlaybackSessionActive);
+  const audioButtonLabel = isWelcomeScene
+    ? isIntroAudioPlaying
+      ? "Pause intro audio"
+      : "Play intro audio"
+    : isStoryScene
+      ? isStoryAudioPlaying
+        ? "Pause story audio"
+        : "Play story audio"
+      : "Audio";
+  const audioButtonText = isWelcomeScene
+    ? introAudioSrc
+      ? isIntroAudioPlaying
+        ? "Pause Intro"
+        : "Play Intro"
+      : "No Intro Audio"
+    : isStoryScene
+      ? storyAudioSrc
+        ? isStoryAudioPlaying
+          ? "Pause Story"
+          : "Play Story"
+        : "No Story Audio"
+      : "Audio";
+  const ambientButtonLabel = !ambientAudioSrc
+    ? "Ambient unavailable"
+    : isAmbientAudioEnabled
+      ? isAmbientAudioPlaying
+        ? "Ambient On"
+        : "Ambient Enabled"
+      : "Ambient Off";
+  const welcomeSceneAudioButtonLabel = isWelcomeSceneAudioPlaying
+    ? "Pause welcome scene audio"
+    : "Play welcome scene audio";
+  const storySceneAudioButtonLabel = isStorySceneAudioPlaying
+    ? "Pause story scene audio"
+    : "Play story scene audio";
+  const continuousNarrationButtonLabel = isContinuousStoryNarrationEnabled
+    ? "Continuous Narration: On"
+    : "Continuous Narration: Off";
+  const storyAudioStatusText = !isStoryScene
+    ? ""
+    : storyAudioSourceType === "page"
+      ? isStoryAudioPlaying
+        ? `Page ${storyPageIndex + 1} narration playing`
+        : `Page ${storyPageIndex + 1} narration ready`
+      : storyAudioSourceType === "fallback"
+        ? isStoryAudioPlaying
+          ? "Scene narration fallback playing"
+          : "Scene narration fallback ready"
+        : "No story narration available";
 
   useEffect(() => {
     if (!enabledScenes.length) {
@@ -288,163 +476,376 @@ export default function V1ExperienceShell({ experience }) {
       if (fadeInTimeoutRef.current) {
         window.clearTimeout(fadeInTimeoutRef.current);
       }
-
-      if (introFadeFrameRef.current) {
-        window.cancelAnimationFrame(introFadeFrameRef.current);
-      }
     };
   }, []);
 
-  function setAmbientVolume(nextVolume) {
+  useEffect(() => {
+    if (ambientAudioRef.current) {
+      ambientAudioRef.current.pause();
+      ambientAudioRef.current.currentTime = 0;
+      ambientAudioRef.current = null;
+    }
+
+    setIsAmbientAudioPlaying(false);
+
+    if (!ambientAudioSrc) {
+      return;
+    }
+
+    const audio = new Audio(ambientAudioSrc);
+    audio.preload = "auto";
+    audio.loop = true;
+
+    const handlePlay = () => {
+      setIsAmbientAudioPlaying(true);
+    };
+
+    const handlePause = () => {
+      setIsAmbientAudioPlaying(false);
+    };
+
+    const handleError = () => {
+      setIsAmbientAudioPlaying(false);
+      console.warn("Ambient audio could not load.", { src: ambientAudioSrc });
+    };
+
+    audio.addEventListener("play", handlePlay);
+    audio.addEventListener("pause", handlePause);
+    audio.addEventListener("error", handleError);
+    ambientAudioRef.current = audio;
+
+    return () => {
+      audio.removeEventListener("play", handlePlay);
+      audio.removeEventListener("pause", handlePause);
+      audio.removeEventListener("error", handleError);
+      audio.pause();
+      audio.currentTime = 0;
+
+      if (ambientAudioRef.current === audio) {
+        ambientAudioRef.current = null;
+      }
+    };
+  }, [ambientAudioSrc]);
+
+  useEffect(() => {
     if (!ambientAudioRef.current) {
       return;
     }
 
-    ambientAudioRef.current.volume = nextVolume;
-  }
-
-  function restoreAmbientVolume() {
-    setAmbientVolume(AMBIENT_VOLUME);
-  }
-
-  function resetIntroAudioPlayback() {
-    if (!introAudioRef.current) {
+    if (!ambientAudioSrc || !isAmbientAudioEnabled) {
+      ambientAudioRef.current.pause();
+      ambientAudioRef.current.currentTime = 0;
       return;
     }
 
-    introAudioRef.current.pause();
-    introAudioRef.current.currentTime = 0;
-    introAudioRef.current.volume = INTRO_VOLUME;
-  }
-
-  function stopIntroFade() {
-    if (introFadeFrameRef.current) {
-      window.cancelAnimationFrame(introFadeFrameRef.current);
-      introFadeFrameRef.current = null;
+    if (shouldSuppressAmbientForVoice) {
+      ambientAudioRef.current.pause();
+      return;
     }
 
-    introFadeInProgressRef.current = false;
-  }
+    let isCancelled = false;
 
-  function handleIntroFinished() {
-    stopIntroFade();
-    introPlayingRef.current = false;
+    async function playAmbientAudio() {
+      try {
+        await ambientAudioRef.current.play();
+      } catch (error) {
+        if (!isCancelled) {
+          console.warn("Ambient audio could not start.", error);
+        }
+      }
+    }
+
+    playAmbientAudio();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [ambientAudioSrc, isAmbientAudioEnabled, shouldSuppressAmbientForVoice]);
+
+  useEffect(() => {
     if (introAudioRef.current) {
-      introAudioRef.current.volume = INTRO_VOLUME;
+      introAudioRef.current.pause();
+      introAudioRef.current.currentTime = 0;
+      introAudioRef.current = null;
     }
-    restoreAmbientVolume();
-  }
 
-  function isIntroAudioPlaying() {
-    return Boolean(
-      introAudioRef.current &&
-      !introAudioRef.current.paused &&
-      !introAudioRef.current.ended
-    );
-  }
+    setIsIntroAudioPlaying(false);
 
-  function fadeOutIntroVoice(onComplete) {
-    if (
-      introFadeInProgressRef.current ||
-      !introAudioRef.current ||
-      introAudioRef.current.paused ||
-      introAudioRef.current.ended
-    ) {
-      if (typeof onComplete === "function") {
-        onComplete();
-      }
+    if (!introAudioSrc) {
       return;
     }
 
-    introFadeInProgressRef.current = true;
+    const audio = new Audio(introAudioSrc);
+    audio.preload = "auto";
 
-    const audio = introAudioRef.current;
-    const startingVolume = audio.volume;
-    const startedAt = window.performance.now();
-
-    const step = (timestamp) => {
-      if (!introAudioRef.current) {
-        stopIntroFade();
-        return;
-      }
-
-      const progress = Math.min((timestamp - startedAt) / INTRO_FADE_OUT_MS, 1);
-      audio.volume = Math.max(0, startingVolume * (1 - progress));
-
-      if (progress < 1) {
-        introFadeFrameRef.current = window.requestAnimationFrame(step);
-        return;
-      }
-
-      resetIntroAudioPlayback();
-      introPlayingRef.current = false;
-      stopIntroFade();
-      restoreAmbientVolume();
-
-      if (typeof onComplete === "function") {
-        onComplete();
-      }
+    const handlePlay = () => {
+      setIsIntroAudioPlaying(true);
     };
 
-    introFadeFrameRef.current = window.requestAnimationFrame(step);
-  }
+    const handlePause = () => {
+      setIsIntroAudioPlaying(false);
+    };
 
-  async function ensureAmbientPlayback() {
-    if (ambientStartedRef.current || ambientAudioFailed || !ambientAudioRef.current) {
-      return;
-    }
+    const handleEnded = () => {
+      audio.currentTime = 0;
+      setIsIntroAudioPlaying(false);
+    };
 
-    try {
-      ambientAudioRef.current.volume = AMBIENT_VOLUME;
-      await ambientAudioRef.current.play();
-      ambientStartedRef.current = true;
-    } catch (error) {
-      console.warn("Ambient audio could not start.", error);
-    }
-  }
+    const handleError = () => {
+      setIsIntroAudioPlaying(false);
+      console.warn("Intro audio could not load.", { src: introAudioSrc });
+    };
 
-  useEffect(() => {
-    if (
-      !hasInteracted ||
-      isTransitioning ||
-      currentScene?.type !== "welcome" ||
-      !introAudioSrc ||
-      introAudioFailed ||
-      introAttemptedRef.current ||
-      !introAudioRef.current
-    ) {
-      return;
-    }
+    audio.addEventListener("play", handlePlay);
+    audio.addEventListener("pause", handlePause);
+    audio.addEventListener("ended", handleEnded);
+    audio.addEventListener("error", handleError);
+    introAudioRef.current = audio;
 
-    async function playIntroVoice() {
-      introAttemptedRef.current = true;
-      introPlayingRef.current = true;
-      setAmbientVolume(AMBIENT_DUCKED_VOLUME);
+    return () => {
+      audio.removeEventListener("play", handlePlay);
+      audio.removeEventListener("pause", handlePause);
+      audio.removeEventListener("ended", handleEnded);
+      audio.removeEventListener("error", handleError);
+      audio.pause();
+      audio.currentTime = 0;
 
-      try {
-        stopIntroFade();
-        introAudioRef.current.volume = INTRO_VOLUME;
-        introAudioRef.current.currentTime = 0;
-        await introAudioRef.current.play();
-      } catch (error) {
-        introPlayingRef.current = false;
-        restoreAmbientVolume();
-        console.warn("Intro audio could not start.", error);
+      if (introAudioRef.current === audio) {
+        introAudioRef.current = null;
       }
-    }
-
-    playIntroVoice();
-  }, [currentScene?.type, hasInteracted, introAudioFailed, introAudioSrc, isTransitioning]);
+    };
+  }, [introAudioSrc]);
 
   useEffect(() => {
-    if (currentScene?.type === "welcome" || !introAudioRef.current || !introPlayingRef.current) {
+    if (welcomeSceneAudioRef.current) {
+      welcomeSceneAudioRef.current.pause();
+      welcomeSceneAudioRef.current.currentTime = 0;
+      welcomeSceneAudioRef.current = null;
+    }
+
+    setIsWelcomeSceneAudioPlaying(false);
+
+    if (!isWelcomeScene || !welcomeSceneAudioSrc) {
+      return;
+    }
+
+    const audio = new Audio(welcomeSceneAudioSrc);
+    audio.preload = "auto";
+
+    const handlePlay = () => {
+      setIsWelcomeSceneAudioPlaying(true);
+    };
+
+    const handlePause = () => {
+      setIsWelcomeSceneAudioPlaying(false);
+    };
+
+    const handleEnded = () => {
+      audio.currentTime = 0;
+      setIsWelcomeSceneAudioPlaying(false);
+    };
+
+    const handleError = () => {
+      setIsWelcomeSceneAudioPlaying(false);
+    };
+
+    audio.addEventListener("play", handlePlay);
+    audio.addEventListener("pause", handlePause);
+    audio.addEventListener("ended", handleEnded);
+    audio.addEventListener("error", handleError);
+    welcomeSceneAudioRef.current = audio;
+
+    return () => {
+      audio.removeEventListener("play", handlePlay);
+      audio.removeEventListener("pause", handlePause);
+      audio.removeEventListener("ended", handleEnded);
+      audio.removeEventListener("error", handleError);
+      audio.pause();
+      audio.currentTime = 0;
+
+      if (welcomeSceneAudioRef.current === audio) {
+        welcomeSceneAudioRef.current = null;
+      }
+    };
+  }, [isWelcomeScene, welcomeSceneAudioSrc]);
+
+  useEffect(() => {
+    if (storySceneAudioRef.current) {
+      storySceneAudioRef.current.pause();
+      storySceneAudioRef.current.currentTime = 0;
+      storySceneAudioRef.current = null;
+    }
+
+    setIsStorySceneAudioPlaying(false);
+
+    if (!isStoryScene || !storySceneAudioSrc) {
+      return;
+    }
+
+    const audio = new Audio(storySceneAudioSrc);
+    audio.preload = "auto";
+
+    const handlePlay = () => {
+      setIsStorySceneAudioPlaying(true);
+    };
+
+    const handlePause = () => {
+      setIsStorySceneAudioPlaying(false);
+    };
+
+    const handleEnded = () => {
+      audio.currentTime = 0;
+      setIsStorySceneAudioPlaying(false);
+    };
+
+    const handleError = () => {
+      setIsStorySceneAudioPlaying(false);
+    };
+
+    audio.addEventListener("play", handlePlay);
+    audio.addEventListener("pause", handlePause);
+    audio.addEventListener("ended", handleEnded);
+    audio.addEventListener("error", handleError);
+    storySceneAudioRef.current = audio;
+
+    return () => {
+      audio.removeEventListener("play", handlePlay);
+      audio.removeEventListener("pause", handlePause);
+      audio.removeEventListener("ended", handleEnded);
+      audio.removeEventListener("error", handleError);
+      audio.pause();
+      audio.currentTime = 0;
+
+      if (storySceneAudioRef.current === audio) {
+        storySceneAudioRef.current = null;
+      }
+    };
+  }, [isStoryScene, storySceneAudioSrc]);
+
+  useEffect(() => {
+    if (storyAudioRef.current) {
+      storyAudioRef.current.pause();
+      storyAudioRef.current.currentTime = 0;
+      storyAudioRef.current = null;
+    }
+
+    setIsStoryAudioPlaying(false);
+
+    if (!isStoryScene || !storyAudioSrc) {
+      return;
+    }
+
+    const audio = new Audio(storyAudioSrc);
+    audio.preload = "auto";
+
+    const handlePlay = () => {
+      setIsStoryAudioPlaying(true);
+    };
+
+    const handlePause = () => {
+      setIsStoryAudioPlaying(false);
+    };
+
+    const handleEnded = () => {
+      audio.currentTime = 0;
+      setIsStoryAudioPlaying(false);
+    };
+
+    const handleError = () => {
+      setIsStoryAudioPlaying(false);
+    };
+
+    audio.addEventListener("play", handlePlay);
+    audio.addEventListener("pause", handlePause);
+    audio.addEventListener("ended", handleEnded);
+    audio.addEventListener("error", handleError);
+    storyAudioRef.current = audio;
+
+    return () => {
+      audio.removeEventListener("play", handlePlay);
+      audio.removeEventListener("pause", handlePause);
+      audio.removeEventListener("ended", handleEnded);
+      audio.removeEventListener("error", handleError);
+      audio.pause();
+      audio.currentTime = 0;
+
+      if (storyAudioRef.current === audio) {
+        storyAudioRef.current = null;
+      }
+    };
+  }, [isStoryScene, storyAudioSrc, storyPageIndex]);
+
+  useEffect(() => {
+    if (currentScene?.type === "welcome" || !introAudioRef.current) {
       return;
     }
 
     introAudioRef.current.pause();
     introAudioRef.current.currentTime = 0;
-    handleIntroFinished();
   }, [currentScene?.type]);
+
+  useEffect(() => {
+    if (currentScene?.type === "story" || !storyAudioRef.current) {
+      return;
+    }
+
+    storyAudioRef.current.pause();
+    storyAudioRef.current.currentTime = 0;
+  }, [currentScene?.type]);
+
+  useEffect(() => {
+    if (currentScene?.type !== "story") {
+      setStoryPageIndex(0);
+      setIsStoryPlaybackSessionActive(false);
+    }
+  }, [currentScene?.type]);
+
+  useEffect(() => {
+    const previousStoryPageIndex = previousStoryPageIndexRef.current;
+    previousStoryPageIndexRef.current = storyPageIndex;
+
+    if (
+      !isStoryScene ||
+      !isContinuousStoryNarrationEnabled ||
+      !isStoryPlaybackSessionActive ||
+      !storyAudioSrc ||
+      !storyAudioRef.current
+    ) {
+      return;
+    }
+
+    if (storyPageIndex === previousStoryPageIndex) {
+      return;
+    }
+
+    let isCancelled = false;
+
+    async function autoplayStoryNarration() {
+      if (ambientAudioRef.current) {
+        ambientAudioRef.current.pause();
+      }
+
+      try {
+        await storyAudioRef.current.play();
+      } catch {
+        if (!isCancelled) {
+          setIsStoryPlaybackSessionActive(false);
+        }
+      }
+    }
+
+    autoplayStoryNarration();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [
+    isContinuousStoryNarrationEnabled,
+    isStoryPlaybackSessionActive,
+    isStoryScene,
+    storyAudioSrc,
+    storyPageIndex,
+  ]);
 
   function goPrevious() {
     requestSceneChange(sceneIndex - 1);
@@ -454,12 +855,161 @@ export default function V1ExperienceShell({ experience }) {
     requestSceneChange(sceneIndex + 1);
   }
 
-  async function handleFirstInteraction() {
-    if (!hasInteracted) {
-      setHasInteracted(true);
+  async function handleAmbientToggleClick() {
+    if (!ambientAudioSrc || !ambientAudioRef.current) {
+      return;
     }
 
-    await ensureAmbientPlayback();
+    if (isAmbientAudioEnabled) {
+      setIsAmbientAudioEnabled(false);
+      ambientAudioRef.current.pause();
+      ambientAudioRef.current.currentTime = 0;
+      return;
+    }
+
+    setIsAmbientAudioEnabled(true);
+
+    if (shouldSuppressAmbientForVoice) {
+      return;
+    }
+
+    try {
+      await ambientAudioRef.current.play();
+    } catch (error) {
+      console.warn("Ambient audio could not start.", error);
+    }
+  }
+
+  async function handleWelcomeSceneAudioButtonClick() {
+    if (!welcomeSceneAudioSrc || !welcomeSceneAudioRef.current) {
+      return;
+    }
+
+    if (ambientAudioRef.current) {
+      ambientAudioRef.current.pause();
+    }
+
+    if (introAudioRef.current) {
+      introAudioRef.current.pause();
+    }
+
+    if (storyAudioRef.current) {
+      storyAudioRef.current.pause();
+      setIsStoryPlaybackSessionActive(false);
+    }
+
+    if (!welcomeSceneAudioRef.current.paused && !welcomeSceneAudioRef.current.ended) {
+      welcomeSceneAudioRef.current.pause();
+      return;
+    }
+
+    try {
+      await welcomeSceneAudioRef.current.play();
+    } catch {
+    }
+  }
+
+  async function handleStorySceneAudioButtonClick() {
+    if (!storySceneAudioSrc || !storySceneAudioRef.current) {
+      return;
+    }
+
+    if (ambientAudioRef.current) {
+      ambientAudioRef.current.pause();
+    }
+
+    if (introAudioRef.current) {
+      introAudioRef.current.pause();
+    }
+
+    if (storyAudioRef.current) {
+      storyAudioRef.current.pause();
+      setIsStoryPlaybackSessionActive(false);
+    }
+
+    if (!storySceneAudioRef.current.paused && !storySceneAudioRef.current.ended) {
+      storySceneAudioRef.current.pause();
+      return;
+    }
+
+    try {
+      await storySceneAudioRef.current.play();
+    } catch {
+    }
+  }
+
+  async function handleAudioButtonClick() {
+    if (isWelcomeScene) {
+      if (!introAudioSrc || !introAudioRef.current) {
+        return;
+      }
+
+      if (storyAudioRef.current) {
+        storyAudioRef.current.pause();
+        storyAudioRef.current.currentTime = 0;
+      }
+
+      if (ambientAudioRef.current) {
+        ambientAudioRef.current.pause();
+      }
+
+      if (welcomeSceneAudioRef.current) {
+        welcomeSceneAudioRef.current.pause();
+      }
+
+      if (storySceneAudioRef.current) {
+        storySceneAudioRef.current.pause();
+      }
+
+      if (!introAudioRef.current.paused && !introAudioRef.current.ended) {
+        introAudioRef.current.pause();
+        return;
+      }
+
+      try {
+        await introAudioRef.current.play();
+      } catch (error) {
+        console.warn("Intro audio could not start.", error);
+      }
+      return;
+    }
+
+    if (isStoryScene) {
+      if (!storyAudioSrc || !storyAudioRef.current) {
+        return;
+      }
+
+      if (introAudioRef.current) {
+        introAudioRef.current.pause();
+        introAudioRef.current.currentTime = 0;
+      }
+
+      if (ambientAudioRef.current) {
+        ambientAudioRef.current.pause();
+      }
+
+      if (welcomeSceneAudioRef.current) {
+        welcomeSceneAudioRef.current.pause();
+      }
+
+      if (storySceneAudioRef.current) {
+        storySceneAudioRef.current.pause();
+      }
+
+      if (!storyAudioRef.current.paused && !storyAudioRef.current.ended) {
+        storyAudioRef.current.pause();
+        setIsStoryPlaybackSessionActive(false);
+        return;
+      }
+
+      setIsStoryPlaybackSessionActive(true);
+
+      try {
+        await storyAudioRef.current.play();
+      } catch {
+        setIsStoryPlaybackSessionActive(false);
+      }
+    }
   }
 
   function startSceneTransition(nextIndex) {
@@ -495,41 +1045,37 @@ export default function V1ExperienceShell({ experience }) {
       window.clearTimeout(fadeInTimeoutRef.current);
     }
 
-    const shouldFadeWelcomeIntro =
-      currentScene?.type === "welcome" && isIntroAudioPlaying();
-
     setIsTransitioning(true);
 
-    if (shouldFadeWelcomeIntro) {
-      fadeOutIntroVoice(() => {
-        startSceneTransition(nextIndex);
-      });
-      return;
+    if (currentScene?.type === "welcome" && introAudioRef.current) {
+      introAudioRef.current.pause();
+      introAudioRef.current.currentTime = 0;
+    }
+
+    if (currentScene?.type === "welcome" && welcomeSceneAudioRef.current) {
+      welcomeSceneAudioRef.current.pause();
+      welcomeSceneAudioRef.current.currentTime = 0;
+    }
+
+    if (currentScene?.type === "story") {
+      setIsStoryPlaybackSessionActive(false);
+
+      if (storyAudioRef.current) {
+        storyAudioRef.current.pause();
+        storyAudioRef.current.currentTime = 0;
+      }
+
+      if (storySceneAudioRef.current) {
+        storySceneAudioRef.current.pause();
+        storySceneAudioRef.current.currentTime = 0;
+      }
     }
 
     startSceneTransition(nextIndex);
   }
 
   return (
-    <main style={shellStyle} onPointerDownCapture={handleFirstInteraction}>
-      <audio
-        ref={ambientAudioRef}
-        loop
-        preload="auto"
-        src={AMBIENT_AUDIO_SRC}
-        onError={() => setAmbientAudioFailed(true)}
-      />
-      <audio
-        ref={introAudioRef}
-        preload="auto"
-        src={introAudioSrc}
-        onEnded={handleIntroFinished}
-        onError={() => {
-          setIntroAudioFailed(true);
-          handleIntroFinished();
-        }}
-      />
-
+    <main style={shellStyle}>
       <div style={sceneViewportStyle}>
         <div
           aria-hidden="true"
@@ -572,6 +1118,7 @@ export default function V1ExperienceShell({ experience }) {
                 scene={currentScene}
                 experience={experience}
                 isActive={!isTransitioning && isSceneVisible}
+                onStoryPageIndexChange={setStoryPageIndex}
               />
             </div>
           </div>
@@ -601,9 +1148,34 @@ export default function V1ExperienceShell({ experience }) {
           <div style={topBarMetaStyle}>
             <button
               type="button"
+              onClick={handleAmbientToggleClick}
+              disabled={!ambientAudioSrc}
+              aria-pressed={ambientAudioSrc ? isAmbientAudioEnabled : false}
+              aria-label={ambientButtonLabel}
+              title={ambientButtonLabel}
+              style={ambientToggleStyle(isAmbientAudioEnabled, !ambientAudioSrc)}
+            >
+              <span style={ambientToggleTextStyle}>{ambientButtonLabel}</span>
+            </button>
+            {isWelcomeScene && welcomeSceneAudioSrc ? (
+              <button
+                type="button"
+                onClick={handleWelcomeSceneAudioButtonClick}
+                aria-label={welcomeSceneAudioButtonLabel}
+                title={welcomeSceneAudioButtonLabel}
+                style={ambientToggleStyle(isWelcomeSceneAudioPlaying, false)}
+              >
+                <span style={ambientToggleTextStyle}>
+                  {isWelcomeSceneAudioPlaying ? "Pause Welcome Scene" : "Play Welcome Scene"}
+                </span>
+              </button>
+            ) : null}
+            <button
+              type="button"
               className="audioComingSoonButton"
-              aria-label="Audio coming soon"
-              title="Audio coming soon"
+              onClick={handleAudioButtonClick}
+              aria-label={audioButtonLabel}
+              title={audioButtonLabel}
               style={audioButtonStyle}
             >
               <span aria-hidden="true" style={audioIconWrapStyle}>
@@ -627,8 +1199,42 @@ export default function V1ExperienceShell({ experience }) {
                   />
                 </svg>
               </span>
-              <span style={audioButtonLabelStyle}>Audio</span>
+              <span style={audioButtonLabelStyle}>{audioButtonText}</span>
             </button>
+            {isStoryScene && storySceneAudioSrc ? (
+              <button
+                type="button"
+                onClick={handleStorySceneAudioButtonClick}
+                aria-label={storySceneAudioButtonLabel}
+                title={storySceneAudioButtonLabel}
+                style={ambientToggleStyle(isStorySceneAudioPlaying, false)}
+              >
+                <span style={ambientToggleTextStyle}>
+                  {isStorySceneAudioPlaying ? "Pause Story Scene" : "Play Story Scene"}
+                </span>
+              </button>
+            ) : null}
+            {isStoryScene ? (
+              <button
+                type="button"
+                onClick={() =>
+                  setIsContinuousStoryNarrationEnabled((currentValue) => !currentValue)
+                }
+                aria-pressed={isContinuousStoryNarrationEnabled}
+                aria-label={continuousNarrationButtonLabel}
+                title={continuousNarrationButtonLabel}
+                style={continuousNarrationToggleStyle(isContinuousStoryNarrationEnabled)}
+              >
+                <span style={continuousNarrationTextStyle}>
+                  {continuousNarrationButtonLabel}
+                </span>
+              </button>
+            ) : null}
+            {isStoryScene ? (
+              <div style={topBarChipStyle} aria-live="polite">
+                <div style={audioStatusLabelStyle}>{storyAudioStatusText}</div>
+              </div>
+            ) : null}
             <div style={topBarChipStyle}>
               <div style={sceneLabelStyle}>
                 {currentScene?.title || "Experience"}{" "}
@@ -923,6 +1529,7 @@ const topBarInnerStyle = {
 const topBarMetaStyle = {
   display: "flex",
   alignItems: "center",
+  flexWrap: "wrap",
   justifyContent: "flex-end",
   gap: 10,
 };
@@ -971,6 +1578,73 @@ const audioButtonLabelStyle = {
   textTransform: "uppercase",
   fontWeight: 700,
   whiteSpace: "nowrap",
+};
+
+const audioStatusLabelStyle = {
+  fontSize: 11,
+  letterSpacing: "0.06em",
+  textTransform: "uppercase",
+  color: "#ffffff",
+  fontWeight: 700,
+  whiteSpace: "nowrap",
+  textShadow: "0 2px 8px rgba(15, 23, 42, 0.4)",
+};
+
+function continuousNarrationToggleStyle(isEnabled) {
+  return {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 8,
+    padding: "9px 12px",
+    borderRadius: 999,
+    border: isEnabled
+      ? "1px solid rgba(255, 255, 255, 0.3)"
+      : "1px solid rgba(255, 255, 255, 0.16)",
+    background: isEnabled ? "rgba(255, 255, 255, 0.16)" : "rgba(15, 23, 42, 0.32)",
+    color: "#ffffff",
+    cursor: "pointer",
+    pointerEvents: "auto",
+    backdropFilter: "blur(8px)",
+    boxShadow: "0 8px 18px rgba(15, 23, 42, 0.1)",
+  };
+}
+
+function ambientToggleStyle(isEnabled, isDisabled) {
+  return {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 8,
+    padding: "9px 12px",
+    borderRadius: 999,
+    border: isEnabled
+      ? "1px solid rgba(255, 255, 255, 0.3)"
+      : "1px solid rgba(255, 255, 255, 0.16)",
+    background: isEnabled ? "rgba(255, 255, 255, 0.16)" : "rgba(15, 23, 42, 0.32)",
+    color: "#ffffff",
+    cursor: isDisabled ? "default" : "pointer",
+    pointerEvents: "auto",
+    opacity: isDisabled ? 0.64 : 1,
+    backdropFilter: "blur(8px)",
+    boxShadow: "0 8px 18px rgba(15, 23, 42, 0.1)",
+  };
+}
+
+const continuousNarrationTextStyle = {
+  fontSize: 11,
+  letterSpacing: "0.08em",
+  textTransform: "uppercase",
+  fontWeight: 700,
+  whiteSpace: "nowrap",
+  textShadow: "0 2px 8px rgba(15, 23, 42, 0.4)",
+};
+
+const ambientToggleTextStyle = {
+  fontSize: 11,
+  letterSpacing: "0.08em",
+  textTransform: "uppercase",
+  fontWeight: 700,
+  whiteSpace: "nowrap",
+  textShadow: "0 2px 8px rgba(15, 23, 42, 0.4)",
 };
 
 const brandStyle = {

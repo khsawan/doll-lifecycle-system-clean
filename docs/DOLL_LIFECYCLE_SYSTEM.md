@@ -400,6 +400,46 @@ The admin content management layer now tracks three management statuses for the 
 - QR logic
 - public route behavior
 
+### Phase C2B — Ambient Universe Audio Layer (Complete)
+
+- Public experience now supports optional ambient universe audio using:
+- `audio_urls.ambient.universe`
+- Ambient playback is toggleable and defaults to OFF
+- When enabled:
+- ambient audio loops across the public experience
+- ambient continues across scene changes
+- Ambient and voice interaction:
+- ambient pauses when Intro or Story voice playback starts
+- ambient may resume after voice playback ends if ambient remains enabled
+- leaving the public doll page stops ambient playback
+- No impact on:
+- `pipeline_state`
+- `commerce_status`
+- QR logic
+- public route behavior
+
+### Phase C2C — Scene-Level Audio Overrides (Complete)
+
+- Public experience now supports optional scene-level audio using:
+- `audio_urls.scene.welcome`
+- `audio_urls.scene.story`
+- Scene audio is optional and manual-play only
+- Scene audio does not autoplay
+- Scene audio is separate from voice narration and ambient audio
+- Audio priority is:
+- voice
+- scene
+- ambient
+- Starting scene audio pauses ambient
+- Starting voice pauses active scene audio
+- Leaving a scene stops that scene audio
+- Leaving the public doll page stops scene audio
+- No impact on:
+- `pipeline_state`
+- `commerce_status`
+- QR logic
+- public route behavior
+
 ### Phase D1 — Content Variation Engine (Complete)
 
 - AI generation now returns one or more variations (normalized into a variation array), typically 2–3 operator-selectable options for supported D1 tasks
