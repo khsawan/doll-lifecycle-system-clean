@@ -4462,7 +4462,7 @@ export default function Page() {
           <div style={storyVariationPanelStyle}>
             <div style={storyVariationPanelHeaderStyle}>
               <div>
-                <div style={storyVariationPanelTitleStyle}>Story candidates</div>
+                <div style={storyVariationPanelTitleStyle}>Story Variations</div>
                 <div style={storyVariationPanelHintStyle}>
                   Choose the version to place in the Main story field. Saving still happens only when you click Save Story.
                 </div>
@@ -4478,22 +4478,27 @@ export default function Page() {
                     : variation.story_main;
 
                 return (
-                  <div key={variation.id} style={storyVariationCardStyle(isSelected)}>
+                  <div
+                    key={variation.id}
+                    className={`admin-variation-card${isSelected ? " is-selected" : ""}`}
+                    style={storyVariationCardStyle(isSelected)}
+                  >
                     <div style={storyVariationCardHeaderStyle}>
                       <div style={storyVariationCardLabelStyle}>{variation.label}</div>
                       <div style={storyVariationBadgeStyle(isSelected)}>
-                        {isSelected ? "In editor" : variation.id.toUpperCase()}
+                        {isSelected ? "Selected" : variation.id.toUpperCase()}
                       </div>
                     </div>
 
-                    <p style={storyVariationPreviewStyle}>{previewText}</p>
+                    <p className="admin-variation-preview" style={storyVariationPreviewStyle}>{previewText}</p>
 
                     <button
                       onClick={() => applyStoryVariationToEditor(variation)}
+                      className="admin-variation-button"
                       style={storyVariationActionStyle(isSelected)}
                       disabled={isSelected}
                     >
-                      {isSelected ? "Using this version" : "Use this version"}
+                      {isSelected ? "Selected in editor" : "Use this version"}
                     </button>
                   </div>
                 );
@@ -4573,7 +4578,7 @@ export default function Page() {
           <div style={storyVariationPanelStyle}>
             <div style={storyVariationPanelHeaderStyle}>
               <div>
-                <div style={storyVariationPanelTitleStyle}>Content Pack candidates</div>
+                <div style={storyVariationPanelTitleStyle}>Content Pack Variations</div>
                 <div style={storyVariationPanelHintStyle}>
                   Choose the version to place in the editable fields. Saving still happens only when you click Save Content Pack.
                 </div>
@@ -4593,32 +4598,37 @@ export default function Page() {
                     : variation.content_blurb;
 
                 return (
-                  <div key={variation.id} style={storyVariationCardStyle(isSelected)}>
+                  <div
+                    key={variation.id}
+                    className={`admin-variation-card${isSelected ? " is-selected" : ""}`}
+                    style={storyVariationCardStyle(isSelected)}
+                  >
                     <div style={storyVariationCardHeaderStyle}>
                       <div style={storyVariationCardLabelStyle}>{variation.label}</div>
                       <div style={storyVariationBadgeStyle(isSelected)}>
-                        {isSelected ? "In editor" : variation.id.toUpperCase()}
+                        {isSelected ? "Selected" : variation.id.toUpperCase()}
                       </div>
                     </div>
 
                     <div style={contentPackVariationPreviewStackStyle}>
                       <div style={contentPackVariationPreviewBlockStyle}>
                         <div style={contentPackVariationPreviewLabelStyle}>Short intro</div>
-                        <p style={storyVariationPreviewStyle}>{introPreview}</p>
+                        <p className="admin-variation-preview" style={storyVariationPreviewStyle}>{introPreview}</p>
                       </div>
 
                       <div style={contentPackVariationPreviewBlockStyle}>
                         <div style={contentPackVariationPreviewLabelStyle}>Content blurb</div>
-                        <p style={storyVariationPreviewStyle}>{blurbPreview}</p>
+                        <p className="admin-variation-preview" style={storyVariationPreviewStyle}>{blurbPreview}</p>
                       </div>
                     </div>
 
                     <button
                       onClick={() => applyContentPackVariationToEditor(variation)}
+                      className="admin-variation-button"
                       style={storyVariationActionStyle(isSelected)}
                       disabled={isSelected}
                     >
-                      {isSelected ? "Using this version" : "Use this version"}
+                      {isSelected ? "Selected in editor" : "Use this version"}
                     </button>
                   </div>
                 );
@@ -4712,7 +4722,7 @@ export default function Page() {
             <div style={storyVariationPanelStyle}>
               <div style={storyVariationPanelHeaderStyle}>
                 <div>
-                  <div style={storyVariationPanelTitleStyle}>Social candidates</div>
+                  <div style={storyVariationPanelTitleStyle}>Social Variations</div>
                   <div style={storyVariationPanelHintStyle}>
                     Choose the version to place in the editable fields. Saving still happens only when you click Save Social Content.
                   </div>
@@ -4732,32 +4742,37 @@ export default function Page() {
                       : variation.social_caption;
 
                   return (
-                    <div key={variation.id} style={storyVariationCardStyle(isSelected)}>
+                    <div
+                      key={variation.id}
+                      className={`admin-variation-card${isSelected ? " is-selected" : ""}`}
+                      style={storyVariationCardStyle(isSelected)}
+                    >
                       <div style={storyVariationCardHeaderStyle}>
                         <div style={storyVariationCardLabelStyle}>{variation.label}</div>
                         <div style={storyVariationBadgeStyle(isSelected)}>
-                          {isSelected ? "In editor" : variation.id.toUpperCase()}
+                          {isSelected ? "Selected" : variation.id.toUpperCase()}
                         </div>
                       </div>
 
                       <div style={contentPackVariationPreviewStackStyle}>
                         <div style={contentPackVariationPreviewBlockStyle}>
                           <div style={contentPackVariationPreviewLabelStyle}>Hook</div>
-                          <p style={storyVariationPreviewStyle}>{hookPreview}</p>
+                          <p className="admin-variation-preview" style={storyVariationPreviewStyle}>{hookPreview}</p>
                         </div>
 
                         <div style={contentPackVariationPreviewBlockStyle}>
                           <div style={contentPackVariationPreviewLabelStyle}>Caption preview</div>
-                          <p style={storyVariationPreviewStyle}>{captionPreview}</p>
+                          <p className="admin-variation-preview" style={storyVariationPreviewStyle}>{captionPreview}</p>
                         </div>
                       </div>
 
                       <button
                         onClick={() => applySocialVariationToEditor(variation)}
+                        className="admin-variation-button"
                         style={storyVariationActionStyle(isSelected)}
                         disabled={isSelected}
                       >
-                        {isSelected ? "Using this version" : "Use this version"}
+                        {isSelected ? "Selected in editor" : "Use this version"}
                       </button>
                     </div>
                   );
@@ -6437,6 +6452,47 @@ export default function Page() {
           box-shadow: none !important;
         }
 
+        .admin-variation-card {
+          transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease,
+            background-color 160ms ease;
+        }
+
+        .admin-variation-card:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 14px 28px rgba(15, 23, 42, 0.08);
+        }
+
+        .admin-variation-card.is-selected {
+          box-shadow: 0 16px 30px rgba(34, 197, 94, 0.12);
+        }
+
+        .admin-variation-card.is-selected:hover {
+          transform: translateY(-1px);
+        }
+
+        .admin-variation-button {
+          transition: transform 140ms ease, box-shadow 140ms ease, background-color 140ms ease,
+            color 140ms ease;
+        }
+
+        .admin-variation-button:hover:not(:disabled) {
+          transform: translateY(-1px);
+          box-shadow: 0 10px 18px rgba(15, 23, 42, 0.08);
+        }
+
+        .admin-variation-button:focus-visible {
+          outline: 2px solid #166534;
+          outline-offset: 2px;
+        }
+
+        .admin-variation-preview {
+          display: -webkit-box;
+          -webkit-box-orient: vertical;
+          -webkit-line-clamp: 5;
+          overflow: hidden;
+          white-space: normal !important;
+        }
+
         .pipeline-stage-grid {
           width: 100%;
         }
@@ -6548,6 +6604,10 @@ const storyVariationPanelStyle = {
   marginBottom: 20,
   display: "grid",
   gap: 14,
+  background: "#f8fafc",
+  border: "1px solid #e2e8f0",
+  borderRadius: 22,
+  padding: 18,
 };
 
 const storyVariationPanelHeaderStyle = {
@@ -6556,37 +6616,41 @@ const storyVariationPanelHeaderStyle = {
   alignItems: "flex-start",
   gap: 12,
   flexWrap: "wrap",
+  paddingBottom: 2,
 };
 
 const storyVariationPanelTitleStyle = {
-  fontSize: 16,
-  fontWeight: 700,
+  fontSize: 17,
+  fontWeight: 800,
   color: "#0f172a",
   marginBottom: 4,
+  letterSpacing: "-0.01em",
 };
 
 const storyVariationPanelHintStyle = {
   fontSize: 14,
   lineHeight: 1.6,
   color: "#64748b",
+  maxWidth: 720,
 };
 
 const storyVariationGridStyle = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
-  gap: 14,
+  gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+  gap: 16,
 };
 
 function storyVariationCardStyle(isSelected = false) {
   return {
     background: isSelected ? "#f0fdf4" : "#ffffff",
-    border: `1px solid ${isSelected ? "#86efac" : "#e2e8f0"}`,
-    borderRadius: 20,
-    padding: 18,
+    border: `1px solid ${isSelected ? "#22c55e" : "#dbe3ee"}`,
+    borderRadius: 22,
+    padding: 20,
     display: "grid",
-    gap: 14,
+    gap: 16,
     alignContent: "start",
     minWidth: 0,
+    boxShadow: isSelected ? "0 12px 26px rgba(34, 197, 94, 0.12)" : "0 6px 16px rgba(15, 23, 42, 0.04)",
   };
 }
 
@@ -6599,21 +6663,21 @@ const storyVariationCardHeaderStyle = {
 
 const storyVariationCardLabelStyle = {
   fontSize: 15,
-  fontWeight: 700,
+  fontWeight: 800,
   color: "#0f172a",
   lineHeight: 1.4,
 };
 
 function storyVariationBadgeStyle(isSelected = false) {
   return {
-    padding: "6px 10px",
+    padding: "6px 11px",
     borderRadius: 999,
     background: isSelected ? "#dcfce7" : "#f8fafc",
-    border: `1px solid ${isSelected ? "#86efac" : "#e2e8f0"}`,
+    border: `1px solid ${isSelected ? "#4ade80" : "#dbe3ee"}`,
     color: isSelected ? "#166534" : "#64748b",
     fontSize: 11,
-    fontWeight: 700,
-    letterSpacing: "0.04em",
+    fontWeight: 800,
+    letterSpacing: "0.05em",
     textTransform: "uppercase",
     whiteSpace: "nowrap",
   };
@@ -6629,19 +6693,20 @@ const storyVariationPreviewStyle = {
 
 const contentPackVariationPreviewStackStyle = {
   display: "grid",
-  gap: 12,
+  gap: 14,
 };
 
 const contentPackVariationPreviewBlockStyle = {
   display: "grid",
   gap: 6,
+  alignContent: "start",
 };
 
 const contentPackVariationPreviewLabelStyle = {
   fontSize: 12,
   fontWeight: 700,
   color: "#64748b",
-  letterSpacing: "0.04em",
+  letterSpacing: "0.06em",
   textTransform: "uppercase",
 };
 
@@ -6651,13 +6716,18 @@ function storyVariationActionStyle(isSelected = false) {
       ...secondaryButton,
       background: "#dcfce7",
       color: "#166534",
+      border: "1px solid #86efac",
       cursor: "default",
+      width: "100%",
+      fontWeight: 700,
     };
   }
 
   return {
     ...secondaryButton,
     width: "100%",
+    background: "#eef2f7",
+    fontWeight: 700,
   };
 }
 
