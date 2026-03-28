@@ -124,6 +124,67 @@ Readiness is a validation model. It is related to the pipeline, but it is not th
 - `ready_for_sale` is the key commercial state used by Gateway readiness.
 - This field controls product readiness for commerce, not customer order flow.
 
+### Audio Model (Phase C2)
+
+Audio is stored in the `audio_urls` JSONB field on the `dolls` table.
+
+The structure supports layered audio:
+
+```json
+{
+  "voice": {
+    "intro": "url",
+    "story": "url",
+    "play": "url"
+  },
+  "ambient": {
+    "universe": "url"
+  },
+  "scene": {
+    "welcome": "url",
+    "story": "url"
+  }
+}
+```
+
+- `voice`: character-driven narration audio (doll voice).
+- `ambient`: universe-level background audio (shared emotional tone).
+- `scene`: optional overrides for specific scenes (future use).
+
+Legacy format:
+
+```json
+{
+  "intro": "...",
+  "story": "...",
+  "play": "..."
+}
+```
+
+Normalization rule:
+
+- Legacy keys map to `audio_urls.voice`.
+- The system must support both shapes during transition.
+
+- Audio is read-only for production flow.
+- Audio does not affect:
+- `pipeline_state`
+- `commerce_status`
+- QR logic
+- public route structure
+
+Phase C2A:
+
+- Supports only voice layer playback (`intro` + `story`).
+
+Phase C2B:
+
+- Introduces ambient layer (`universe`).
+
+Phase C2C:
+
+- Optional scene-level overrides.
+
 ### CRM Separation
 
 - CRM and order tracking are separate from product readiness.
@@ -242,6 +303,102 @@ The admin content management layer now tracks three management statuses for the 
 - `audio_urls` JSONB field added to `dolls` table
 - Public audio button shell (non-functional)
 - System ready for future audio playback integration
+
+### Phase C2A — Intro Voice Playback (Complete)
+
+- Welcome scene audio button now plays intro voice if audio exists
+- Supports new structure:
+- `audio_urls.voice.intro`
+- Supports legacy structure:
+- `audio_urls.intro`
+- Playback behavior:
+- click to play
+- click again to pause
+- resumes from paused position
+- Audio automatically stops and resets when leaving the Welcome scene
+- Welcome and Story voice playback do not overlap
+- This is currently section-level playback for the Welcome scene
+- Playback uses native browser `Audio()` with a single active voice instance
+- No layout or UI changes introduced beyond activating existing button
+- No impact on:
+- `pipeline_state`
+- `commerce_status`
+- QR logic
+- public route behavior
+
+### Phase C2A — Story Voice Playback (Complete)
+
+- Story scene audio button now plays story voice if audio exists
+- Supports new structure:
+- `audio_urls.voice.story`
+- Supports legacy structure:
+- `audio_urls.story`
+- Playback behavior:
+- click to play
+- click again to pause
+- resumes from paused position
+- Audio automatically stops and resets when leaving the Story scene
+- Welcome and Story voice playback do not overlap
+- This is currently section-level playback for the Story scene
+- It is not yet page-level or beat-level story narration
+- Playback uses native browser `Audio()` with a single active voice instance
+- No layout or UI changes introduced beyond activating existing button
+- No impact on:
+- `pipeline_state`
+- `commerce_status`
+- QR logic
+- public route behavior
+
+### Phase C2A-2 — Page-Level Story Narration (Complete)
+
+- Story scene now supports page-level narration using:
+- `audio_urls.voice.story_pages`
+- `story_pages` is an ordered array mapped to Story pages 1–4
+- Fallback order:
+- `audio_urls.voice.story_pages[index]`
+- `audio_urls.voice.story`
+- `audio_urls.story`
+- Page-level playback behavior:
+- audio button controls the currently active story page
+- click to play
+- click again to pause
+- resumes from paused position on the same page
+- changing story page stops and resets the previous page audio
+- story page changes do not autoplay the next page
+- leaving the Story scene stops and resets story narration
+- Welcome and Story voice playback do not overlap
+- Playback continues to use native browser `Audio()` with a single active voice instance
+- The existing Story audio control now exposes visible play/pause/unavailable state
+- When page-level narration is absent, the public shell indicates that scene-level fallback narration is active
+- No impact on:
+- `pipeline_state`
+- `commerce_status`
+- QR logic
+- public route behavior
+
+### Phase C2A-3 — Continuous Story Narration Mode (Complete)
+
+- Story scene now supports an optional Continuous Narration mode
+- The toggle defaults to OFF
+- When OFF:
+- story narration remains manual per page
+- page changes do not autoplay
+- When ON:
+- story narration continues automatically across page changes after the user has explicitly started playback
+- turning the toggle ON does not autoplay by itself
+- pausing narration ends the active playback session
+- leaving the Story scene stops narration and clears the active playback session
+- re-entering Story scene does not autoplay until the user presses Play again
+- Audio source resolution remains:
+- `audio_urls.voice.story_pages[index]`
+- `audio_urls.voice.story`
+- `audio_urls.story`
+- Welcome and Story voice playback do not overlap
+- No impact on:
+- `pipeline_state`
+- `commerce_status`
+- QR logic
+- public route behavior
 
 ### Phase D1 — Content Variation Engine (Complete)
 
