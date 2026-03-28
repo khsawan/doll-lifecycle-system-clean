@@ -452,6 +452,23 @@ The admin content management layer now tracks three management statuses for the 
 - Content Pack
 - Social
 
+### Phase D1 — Admin Variation Selection (Current Scope)
+
+- The admin generation layer now supports local candidate variation selection for:
+- story generation
+- content pack generation
+- social generation
+- Candidate variations are local UI state only and are not persisted to Supabase
+- When variations are returned, the first variation auto-applies into the editor as the default working version
+- Operators can switch between candidate variations before saving
+- Saving still persists only the currently selected editor content
+- Legacy single-result responses remain supported through local wrapping into a default variation
+- This variation layer does not modify:
+- `pipeline_state`
+- `commerce_status`
+- QR logic
+- public doll route behavior
+
 ## Future Phases
 
 - Phase 10: Universe layer for higher-level world and theme structures across multiple dolls.

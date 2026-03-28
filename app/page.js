@@ -3281,19 +3281,19 @@ export default function Page() {
         throw new Error("Story generation returned an empty result.");
       }
 
-      if (nextStoryVariations.length >= 1) {
-        setStoryVariations(nextStoryVariations);
-        applyStoryVariationToEditor(nextStoryVariations[0], pack);
-      } else {
-        setStoryVariations([]);
-        setSelectedStoryVariationId("");
-        setStory({
-          teaser: pack.teaser,
-          mainStory: generatedMainStory,
-          mini1: pack.mini1,
-          mini2: pack.mini2,
-        });
-      }
+      const resolvedStoryVariations =
+        nextStoryVariations.length >= 1
+          ? nextStoryVariations
+          : [
+              {
+                id: "v1",
+                label: "Version 1",
+                story_main: generatedMainStory,
+              },
+            ];
+
+      setStoryVariations(resolvedStoryVariations);
+      applyStoryVariationToEditor(resolvedStoryVariations[0], pack);
 
       setNotice(`${tone} story pack generated.`);
     } catch (err) {
@@ -3908,28 +3908,33 @@ export default function Page() {
 
       const result = data?.result || {};
       const nextContentPackVariations = readContentPackVariationCandidates(result);
-      const selectedVariation = nextContentPackVariations[0] || null;
-      const nextContentPack = selectedVariation
-        ? {
-            caption: selectedVariation.short_intro,
-            hook: selectedVariation.promo_hook,
-            blurb: selectedVariation.content_blurb,
-            cta: selectedVariation.cta,
-          }
-        : {
-            caption: typeof result.short_intro === "string" ? result.short_intro.trim() : "",
-            hook: typeof result.promo_hook === "string" ? result.promo_hook.trim() : "",
-            blurb: typeof result.content_blurb === "string" ? result.content_blurb.trim() : "",
-            cta: typeof result.cta === "string" ? result.cta.trim() : "",
-          };
+      const nextContentPack = {
+        caption: typeof result.short_intro === "string" ? result.short_intro.trim() : "",
+        hook: typeof result.promo_hook === "string" ? result.promo_hook.trim() : "",
+        blurb: typeof result.content_blurb === "string" ? result.content_blurb.trim() : "",
+        cta: typeof result.cta === "string" ? result.cta.trim() : "",
+      };
 
       if (!nextContentPack.caption || !nextContentPack.hook || !nextContentPack.blurb || !nextContentPack.cta) {
         throw new Error("Content pack generation returned incomplete data.");
       }
 
-      setContentPackVariations(nextContentPackVariations);
-      setSelectedContentPackVariationId(selectedVariation?.id || "");
-      setContentPack(nextContentPack);
+      const resolvedContentPackVariations =
+        nextContentPackVariations.length >= 1
+          ? nextContentPackVariations
+          : [
+              {
+                id: "v1",
+                label: "Version 1",
+                short_intro: nextContentPack.caption,
+                content_blurb: nextContentPack.blurb,
+                promo_hook: nextContentPack.hook,
+                cta: nextContentPack.cta,
+              },
+            ];
+
+      setContentPackVariations(resolvedContentPackVariations);
+      applyContentPackVariationToEditor(resolvedContentPackVariations[0]);
       setNotice("Content pack generated.");
     } catch (err) {
       setError(err?.message || "Failed to generate content pack.");
@@ -3966,32 +3971,32 @@ export default function Page() {
 
       const result = data?.result || {};
       const nextSocialVariations = readSocialVariationCandidates(result);
-      const selectedVariation = nextSocialVariations[0] || null;
-      const nextSocialContent = selectedVariation
-        ? {
-            social_hook: selectedVariation.social_hook,
-            social_caption: selectedVariation.social_caption,
-            social_cta: selectedVariation.social_cta,
-          }
-        : {
-            social_hook: typeof result.social_hook === "string" ? result.social_hook.trim() : "",
-            social_caption:
-              typeof result.social_caption === "string" ? result.social_caption.trim() : "",
-            social_cta: typeof result.social_cta === "string" ? result.social_cta.trim() : "",
-          };
+      const nextSocialContent = {
+        social_hook: typeof result.social_hook === "string" ? result.social_hook.trim() : "",
+        social_caption:
+          typeof result.social_caption === "string" ? result.social_caption.trim() : "",
+        social_cta: typeof result.social_cta === "string" ? result.social_cta.trim() : "",
+      };
 
       if (!nextSocialContent.social_hook || !nextSocialContent.social_caption || !nextSocialContent.social_cta) {
         throw new Error("Social generation returned incomplete data.");
       }
 
-      setSocialVariations(nextSocialVariations);
-      setSelectedSocialVariationId(selectedVariation?.id || "");
-      setIdentity((prev) => ({
-        ...prev,
-        social_hook: nextSocialContent.social_hook,
-        social_caption: nextSocialContent.social_caption,
-        social_cta: nextSocialContent.social_cta,
-      }));
+      const resolvedSocialVariations =
+        nextSocialVariations.length >= 1
+          ? nextSocialVariations
+          : [
+              {
+                id: "v1",
+                label: "Version 1",
+                social_hook: nextSocialContent.social_hook,
+                social_caption: nextSocialContent.social_caption,
+                social_cta: nextSocialContent.social_cta,
+              },
+            ];
+
+      setSocialVariations(resolvedSocialVariations);
+      applySocialVariationToEditor(resolvedSocialVariations[0]);
       setNotice("Social content generated.");
     } catch (err) {
       setError(err?.message || "Failed to generate social content.");
@@ -4467,6 +4472,10 @@ export default function Page() {
             <div style={storyVariationGridStyle}>
               {storyVariations.map((variation) => {
                 const isSelected = selectedStoryVariationId === variation.id;
+                const previewText =
+                  variation.story_main.length > 240
+                    ? `${variation.story_main.slice(0, 240).trimEnd()}...`
+                    : variation.story_main;
 
                 return (
                   <div key={variation.id} style={storyVariationCardStyle(isSelected)}>
@@ -4477,7 +4486,7 @@ export default function Page() {
                       </div>
                     </div>
 
-                    <p style={storyVariationPreviewStyle}>{variation.story_main}</p>
+                    <p style={storyVariationPreviewStyle}>{previewText}</p>
 
                     <button
                       onClick={() => applyStoryVariationToEditor(variation)}
@@ -4574,6 +4583,14 @@ export default function Page() {
             <div style={storyVariationGridStyle}>
               {contentPackVariations.map((variation) => {
                 const isSelected = selectedContentPackVariationId === variation.id;
+                const introPreview =
+                  variation.short_intro.length > 140
+                    ? `${variation.short_intro.slice(0, 140).trimEnd()}...`
+                    : variation.short_intro;
+                const blurbPreview =
+                  variation.content_blurb.length > 200
+                    ? `${variation.content_blurb.slice(0, 200).trimEnd()}...`
+                    : variation.content_blurb;
 
                 return (
                   <div key={variation.id} style={storyVariationCardStyle(isSelected)}>
@@ -4587,12 +4604,12 @@ export default function Page() {
                     <div style={contentPackVariationPreviewStackStyle}>
                       <div style={contentPackVariationPreviewBlockStyle}>
                         <div style={contentPackVariationPreviewLabelStyle}>Short intro</div>
-                        <p style={storyVariationPreviewStyle}>{variation.short_intro}</p>
+                        <p style={storyVariationPreviewStyle}>{introPreview}</p>
                       </div>
 
                       <div style={contentPackVariationPreviewBlockStyle}>
-                        <div style={contentPackVariationPreviewLabelStyle}>Promo hook</div>
-                        <p style={storyVariationPreviewStyle}>{variation.promo_hook}</p>
+                        <div style={contentPackVariationPreviewLabelStyle}>Content blurb</div>
+                        <p style={storyVariationPreviewStyle}>{blurbPreview}</p>
                       </div>
                     </div>
 
@@ -4705,6 +4722,10 @@ export default function Page() {
               <div style={storyVariationGridStyle}>
                 {socialVariations.map((variation) => {
                   const isSelected = selectedSocialVariationId === variation.id;
+                  const hookPreview =
+                    variation.social_hook.length > 120
+                      ? `${variation.social_hook.slice(0, 120).trimEnd()}...`
+                      : variation.social_hook;
                   const captionPreview =
                     variation.social_caption.length > 120
                       ? `${variation.social_caption.slice(0, 120).trimEnd()}...`
@@ -4722,7 +4743,7 @@ export default function Page() {
                       <div style={contentPackVariationPreviewStackStyle}>
                         <div style={contentPackVariationPreviewBlockStyle}>
                           <div style={contentPackVariationPreviewLabelStyle}>Hook</div>
-                          <p style={storyVariationPreviewStyle}>{variation.social_hook}</p>
+                          <p style={storyVariationPreviewStyle}>{hookPreview}</p>
                         </div>
 
                         <div style={contentPackVariationPreviewBlockStyle}>
