@@ -3,7 +3,95 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "../../../lib/supabase";
-import { withNormalizedPipelineState } from "../../../lib/pipelineState";
+import { buildV1Experience } from "../../../lib/publicExperience";
+import V1ExperienceShell from "./V1ExperienceShell";
+
+const AMBIENT_PARTICLES = [
+  {
+    left: "6%",
+    top: "78%",
+    size: "96px",
+    duration: "30s",
+    delay: "-4s",
+    driftX: "18px",
+    driftY: "-180px",
+    opacity: "0.2",
+    blur: "0.7px",
+    radius: "999px",
+  },
+  {
+    left: "19%",
+    top: "22%",
+    size: "58px",
+    duration: "26s",
+    delay: "-12s",
+    driftX: "-10px",
+    driftY: "-126px",
+    opacity: "0.17",
+    blur: "0.45px",
+    radius: "999px",
+  },
+  {
+    left: "32%",
+    top: "58%",
+    size: "80px",
+    duration: "32s",
+    delay: "-7s",
+    driftX: "16px",
+    driftY: "-172px",
+    opacity: "0.19",
+    blur: "0.6px",
+    radius: "999px",
+  },
+  {
+    left: "48%",
+    top: "14%",
+    size: "108px",
+    duration: "36s",
+    delay: "-18s",
+    driftX: "-14px",
+    driftY: "-152px",
+    opacity: "0.17",
+    blur: "0.85px",
+    radius: "999px",
+  },
+  {
+    left: "66%",
+    top: "72%",
+    size: "70px",
+    duration: "28s",
+    delay: "-10s",
+    driftX: "12px",
+    driftY: "-146px",
+    opacity: "0.18",
+    blur: "0.55px",
+    radius: "999px",
+  },
+  {
+    left: "82%",
+    top: "36%",
+    size: "90px",
+    duration: "34s",
+    delay: "-15s",
+    driftX: "-14px",
+    driftY: "-168px",
+    opacity: "0.18",
+    blur: "0.75px",
+    radius: "999px",
+  },
+  {
+    left: "91%",
+    top: "84%",
+    size: "56px",
+    duration: "25s",
+    delay: "-21s",
+    driftX: "8px",
+    driftY: "-132px",
+    opacity: "0.16",
+    blur: "0.45px",
+    radius: "999px",
+  },
+];
 
 export default function DollPublicPage() {
   const params = useParams();
@@ -15,39 +103,17 @@ export default function DollPublicPage() {
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [doll, setDoll] = useState(null);
-  const [story, setStory] = useState({
-    teaser: "",
-    mainStory: "",
-    mini1: "",
-    mini2: "",
-  });
-  const [viewportWidth, setViewportWidth] = useState(1200);
-
-  const isMobile = viewportWidth < 760;
-  const isTablet = viewportWidth >= 760 && viewportWidth < 1100;
-  const mainPageStyle = {
-    ...pageStyle,
-    padding: isMobile ? "14px 10px 40px" : pageStyle.padding,
-  };
+  const [experience, setExperience] = useState(null);
 
   useEffect(() => {
-    function handleResize() {
-      setViewportWidth(window.innerWidth);
-    }
+    async function loadExperience() {
+      if (!slug) {
+        return;
+      }
 
-    handleResize();
-    window.addEventListener("resize", handleResize);
-
-    return () => window.removeEventListener("resize", handleResize);
-  }, []);
-
-  useEffect(() => {
-    async function loadPage() {
-      if (!slug) return;
       if (!supabase) {
         setError("This doll page is not configured yet.");
-        setDoll(null);
+        setExperience(null);
         setLoading(false);
         return;
       }
@@ -63,724 +129,236 @@ export default function DollPublicPage() {
 
       if (dollError || !dollRow) {
         setError("This doll page could not be found.");
-        setDoll(null);
+        setExperience(null);
         setLoading(false);
         return;
       }
 
-      setDoll(
-        withNormalizedPipelineState(dollRow, {
-          timestamp:
-            (typeof dollRow?.created_at === "string" && dollRow.created_at.trim()) ||
-            (typeof dollRow?.updated_at === "string" && dollRow.updated_at.trim()) ||
-            undefined,
-        })
-      );
-
-      const { data: stories } = await supabase
+      const { data: storyRows } = await supabase
         .from("stories")
         .select("*")
         .eq("doll_id", dollRow.id)
         .order("sequence_order", { ascending: true });
 
-      const teaser = (stories || []).find((s) => s.type === "teaser")?.content || "";
-      const mainStory = (stories || []).find((s) => s.type === "main")?.content || "";
-      const minis = (stories || []).filter((s) => s.type === "mini");
+      let relatedDollRows = [];
 
-      setStory({
-        teaser,
-        mainStory,
-        mini1: minis[0]?.content || "",
-        mini2: minis[1]?.content || "",
-      });
+      if (dollRow.universe_id) {
+        const { data } = await supabase
+          .from("dolls")
+          .select("id, slug, name, short_intro, emotional_hook, image_url, theme_name, universe_id")
+          .eq("universe_id", dollRow.universe_id)
+          .neq("id", dollRow.id)
+          .limit(3);
 
+        relatedDollRows = data || [];
+      }
+
+      if (!relatedDollRows.length && dollRow.theme_name) {
+        const { data } = await supabase
+          .from("dolls")
+          .select("id, slug, name, short_intro, emotional_hook, image_url, theme_name")
+          .eq("theme_name", dollRow.theme_name)
+          .neq("id", dollRow.id)
+          .limit(3);
+
+        relatedDollRows = data || [];
+      }
+
+      const testStoryRows = [
+        {
+          type: "teaser",
+          content: "A gentle moment on the farm with Rosie.",
+        },
+        {
+          type: "main",
+          content: `Rosie stepped into the quiet farmyard, where soft morning light touched the wooden fence and little chickens wandered gently through the grass.
+
+She felt a little unsure as a fluffy chick came close to her feet, peeping softly as if waiting for her to say hello.
+
+Rosie knelt down and held out her hand, and the tiny chick hopped closer, followed by two more, gathering around her in a soft, happy circle.
+
+Soon the whole farm felt calm and friendly, and Rosie smiled, feeling brave and at home among her new little friends.`,
+        },
+        {
+          type: "mini",
+          content: "Rosie loves quiet mornings on the farm.",
+        },
+        {
+          type: "mini",
+          content: "Even the smallest hello can make a new friend.",
+        },
+      ];
+
+      setExperience(
+        buildV1Experience({
+          dollRow,
+          storyRows: testStoryRows,
+          relatedDollRows,
+        })
+      );
       setLoading(false);
     }
 
-    loadPage();
+    loadExperience();
   }, [slug]);
 
   if (loading) {
     return (
-      <main style={mainPageStyle}>
-        <div style={shellStyle}>
-          <div style={brandStyle}>MAILLE & MERVEILLE</div>
-          <div style={loadingCardStyle}>Loading doll story...</div>
-        </div>
+      <main style={stateShellStyle}>
+        <div style={stateCardStyle}>Loading doll story...</div>
       </main>
     );
   }
 
-  if (error || !doll) {
+  if (error || !experience) {
     return (
-      <main style={mainPageStyle}>
-        <div style={shellStyle}>
-          <div style={brandStyle}>MAILLE & MERVEILLE</div>
-          <div style={errorCardStyle}>
-            <h1 style={{ margin: "0 0 12px", fontSize: 28 }}>Doll page unavailable</h1>
-            <p style={{ margin: 0, color: "#64748b", lineHeight: 1.8 }}>
-              {error || "We could not load this doll page right now."}
-            </p>
-          </div>
+      <main style={stateShellStyle}>
+        <div style={errorCardStyle}>
+          <h1 style={errorTitleStyle}>Doll page unavailable</h1>
+          <p style={errorTextStyle}>
+            {error || "We could not load this doll page right now."}
+          </p>
         </div>
       </main>
     );
   }
-
-  const heroTitleSize = isMobile ? 40 : isTablet ? 62 : 76;
-  const heroPadding = isMobile ? 16 : 26;
-  const sectionPadding = isMobile ? 16 : 24;
-  const contentGap = isMobile ? 16 : 22;
-  const sectionCardRadius = isMobile ? 24 : sectionCardStyle.borderRadius;
-  const heroCardRadius = isMobile ? 26 : heroCardStyle.borderRadius;
-  const imageUrl = typeof doll.image_url === "string" ? doll.image_url.trim() : "";
 
   return (
-    <main style={mainPageStyle}>
-      <div style={shellStyle}>
-        <div style={brandStyle}>MAILLE & MERVEILLE</div>
-
-        <section
-          style={{
-            ...heroCardStyle,
-            padding: heroPadding,
-            borderRadius: heroCardRadius,
-          }}
-        >
-          {isMobile ? (
-            <div style={mobileHeroStackStyle}>
-              <div style={heroMetaRowMobileStyle}>
-                <div style={heroBadgeStyle}>{doll.theme_name || "Unassigned"}</div>
-                {doll.internal_id ? <div style={heroInternalIdStyle}>{doll.internal_id}</div> : null}
-              </div>
-
-              <h1
-                style={{
-                  ...heroTitleStyle,
-                  fontSize: heroTitleSize,
-                  textAlign: "center",
-                  marginBottom: 12,
-                }}
-              >
-                {doll.name || "Handmade Doll"}
-              </h1>
-
-              {imageUrl ? (
-                <div style={mobileImageOuterStyle}>
-                  <div style={mobileImageFrameStyle}>
-                    <img
-                      src={imageUrl}
-                      alt={doll.name || "Doll"}
-                      style={mobileHeroImageStyle}
-                    />
-                  </div>
-                </div>
-              ) : (
-                <div style={mobileImageOuterStyle}>
-                  <div style={mobileImageFrameStyle}>
-                    <div style={heroImageFallbackStyle}>
-                      <div style={heroImageFallbackTitleStyle}>{doll.name || "This Doll"}</div>
-                      <div style={heroImageFallbackTextStyle}>
-                        A handmade character page with a story to discover.
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              <p style={mobileIntroStyle}>
-                {doll.short_intro || "A one-of-a-kind handmade doll with a story to discover."}
-              </p>
-
-              {story.teaser ? (
-                <div
-                  style={{
-                    ...mobileTeaserBoxStyle,
-                    width: "100%",
-                    boxSizing: "border-box",
-                  }}
-                >
-                  {story.teaser}
-                </div>
-              ) : null}
-
-              {doll.emotional_hook ? (
-                <div
-                  style={{
-                    ...mobileHeartBoxStyle,
-                    width: "100%",
-                    boxSizing: "border-box",
-                  }}
-                >
-                  <div style={mobileHeartLabelStyle}>Character Heart</div>
-                  <div style={mobileHeartTextStyle}>{doll.emotional_hook}</div>
-                </div>
-              ) : null}
-            </div>
-          ) : (
-            <div
-              style={{
-                ...heroGridStyle,
-                gridTemplateColumns: isTablet ? "1fr 1fr" : "1.08fr 0.92fr",
-              }}
-            >
-              <div style={heroTextColumnStyle}>
-                <div style={heroMetaRowStyle}>
-                  <div style={heroBadgeStyle}>{doll.theme_name || "Unassigned"}</div>
-                  {doll.internal_id ? <div style={heroInternalIdStyle}>{doll.internal_id}</div> : null}
-                </div>
-
-                <h1
-                  style={{
-                    ...heroTitleStyle,
-                    fontSize: heroTitleSize,
-                    textAlign: "left",
-                  }}
-                >
-                  {doll.name || "Handmade Doll"}
-                </h1>
-
-                <p style={heroIntroStyle}>
-                  {doll.short_intro || "A one-of-a-kind handmade doll with a story to discover."}
-                </p>
-
-                {story.teaser ? <div style={teaserBoxStyle}>{story.teaser}</div> : null}
-
-                {doll.emotional_hook ? (
-                  <div style={heroInfoPillsStyle}>
-                    <div style={infoPillStyle}>
-                      <span style={infoPillLabelStyle}>Character Heart</span>
-                      <span>{doll.emotional_hook}</span>
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-
-              <div style={heroVisualColumnStyle}>
-                <div style={heroImageFrameStyle}>
-                  {imageUrl ? (
-                    <img
-                      src={imageUrl}
-                      alt={doll.name || "Doll"}
-                      style={{
-                        ...heroImageStyle,
-                        height: isTablet ? 430 : 520,
-                      }}
-                    />
-                  ) : (
-                    <div style={heroImageFallbackStyle}>
-                      <div style={heroImageFallbackTitleStyle}>{doll.name || "This Doll"}</div>
-                      <div style={heroImageFallbackTextStyle}>
-                        A handmade character page with a story to discover.
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-        </section>
-
-        <section
-          style={{
-            ...contentGridStyle,
-            gap: contentGap,
-            marginTop: isMobile ? 18 : contentGridStyle.marginTop,
-            gridTemplateColumns: isMobile ? "1fr" : isTablet ? "1fr" : "1.42fr 0.92fr",
-          }}
-        >
-          <div
-            style={{
-              ...mainColumnStyle,
-              gap: contentGap,
-            }}
-          >
-            <div
-              style={{
-                ...sectionCardStyle,
-                padding: sectionPadding,
-                borderRadius: sectionCardRadius,
-              }}
-            >
-              <div style={sectionLabelStyle}>Main Story</div>
-              <div
-                style={{
-                  ...storyTextStyle,
-                  fontSize: isMobile ? 16 : 18,
-                  lineHeight: isMobile ? 1.9 : storyTextStyle.lineHeight,
-                }}
-              >
-                {story.mainStory || "This doll's full story is coming soon."}
-              </div>
-            </div>
-
-            {story.mini1 || story.mini2 ? (
-              <div
-                style={{
-                  ...sectionCardStyle,
-                  padding: sectionPadding,
-                  borderRadius: sectionCardRadius,
-                }}
-              >
-                <div style={sectionLabelStyle}>Little Story Moments</div>
-
-                <div
-                  style={{
-                    ...miniGridStyle,
-                    gap: isMobile ? 12 : miniGridStyle.gap,
-                    gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr",
-                  }}
-                >
-                  {story.mini1 ? (
-                    <div
-                      style={{
-                        ...miniCardStyle,
-                        padding: isMobile ? 16 : miniCardStyle.padding,
-                      }}
-                    >
-                      <div style={miniTitleStyle}>Story Moment 1</div>
-                      <div style={miniTextStyle}>{story.mini1}</div>
-                    </div>
-                  ) : null}
-
-                  {story.mini2 ? (
-                    <div
-                      style={{
-                        ...miniCardStyle,
-                        padding: isMobile ? 16 : miniCardStyle.padding,
-                      }}
-                    >
-                      <div style={miniTitleStyle}>Story Moment 2</div>
-                      <div style={miniTextStyle}>{story.mini2}</div>
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-            ) : null}
-          </div>
-
-          <aside
-            style={{
-              ...sideColumnStyle,
-              gap: contentGap,
-            }}
-          >
-            <div
-              style={{
-                ...sectionCardStyle,
-                padding: sectionPadding,
-                borderRadius: sectionCardRadius,
-              }}
-            >
-              <div style={sectionLabelStyle}>About This Doll</div>
-
-              <div style={infoListStyle}>
-                <div style={infoRowStyle}>
-                  <div style={infoKeyStyle}>Name</div>
-                  <div style={infoValueStyle}>{doll.name || "—"}</div>
-                </div>
-
-                <div style={infoRowStyle}>
-                  <div style={infoKeyStyle}>Theme</div>
-                  <div style={infoValueStyle}>{doll.theme_name || "Unassigned"}</div>
-                </div>
-
-                <div style={infoRowStyle}>
-                  <div style={infoKeyStyle}>Character Heart</div>
-                  <div style={infoValueStyle}>
-                    {doll.emotional_hook || "A gentle handmade friend with a meaningful story."}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div
-              style={{
-                ...sectionCardStyle,
-                padding: sectionPadding,
-                borderRadius: sectionCardRadius,
-              }}
-            >
-              <div style={sectionLabelStyle}>A Handmade World</div>
-              <p style={sideTextStyle}>
-                Every Maille & Merveille doll is imagined as more than an object — each one carries a small world,
-                a mood, and a story waiting to be felt.
-              </p>
-            </div>
-          </aside>
-        </section>
-      </div>
-    </main>
+    <div className="publicExperienceWrap" style={publicExperienceWrapStyle}>
+      <V1ExperienceShell experience={experience} />
+      <AmbientParticleLayer />
+    </div>
   );
 }
 
-const pageStyle = {
-  minHeight: "100vh",
+function AmbientParticleLayer() {
+  return (
+    <>
+      <div aria-hidden="true" className="ambientLayer" style={ambientLayerStyle}>
+        {AMBIENT_PARTICLES.map((particle, index) => (
+          <span
+            key={`ambient-particle-${index}`}
+            className="ambientParticle"
+            style={{
+              "--ambient-left": particle.left,
+              "--ambient-top": particle.top,
+              "--ambient-size": particle.size,
+              "--ambient-duration": particle.duration,
+              "--ambient-delay": particle.delay,
+              "--ambient-drift-x": particle.driftX,
+              "--ambient-drift-y": particle.driftY,
+              "--ambient-opacity": particle.opacity,
+              "--ambient-blur": particle.blur,
+              "--ambient-radius": particle.radius,
+            }}
+          />
+        ))}
+      </div>
+
+      <style jsx>{`
+        @keyframes ambientParticleFloat {
+          0% {
+            transform: translate3d(0, 0, 0) rotate(0deg) scale(0.9);
+            opacity: 0;
+          }
+
+          18% {
+            opacity: var(--ambient-opacity);
+          }
+
+          65% {
+            transform: translate3d(
+                calc(var(--ambient-drift-x) * 0.58),
+                calc(var(--ambient-drift-y) * 0.62),
+                0
+              )
+              rotate(5deg)
+              scale(1);
+            opacity: calc(var(--ambient-opacity) * 0.92);
+          }
+
+          100% {
+            transform: translate3d(var(--ambient-drift-x), var(--ambient-drift-y), 0)
+              rotate(10deg)
+              scale(1.05);
+            opacity: 0;
+          }
+        }
+
+        .ambientParticle {
+          position: absolute;
+          left: var(--ambient-left);
+          top: var(--ambient-top);
+          width: var(--ambient-size);
+          height: calc(var(--ambient-size) * 1.15);
+          border-radius: var(--ambient-radius);
+          background:
+            radial-gradient(
+              circle at 38% 38%,
+              rgba(255, 255, 255, 0.54) 0%,
+              rgba(255, 250, 244, 0.3) 36%,
+              rgba(255, 235, 217, 0.12) 56%,
+              rgba(255, 235, 217, 0.03) 72%,
+              rgba(255, 235, 217, 0) 82%
+            );
+          filter: blur(var(--ambient-blur));
+          box-shadow: 0 0 24px rgba(255, 244, 232, 0.12);
+          opacity: var(--ambient-opacity);
+          will-change: transform, opacity;
+          animation: ambientParticleFloat var(--ambient-duration) linear infinite;
+          animation-delay: var(--ambient-delay);
+          transform: translate3d(0, 0, 0);
+        }
+
+        @media (max-width: 720px) {
+          .ambientParticle {
+            width: calc(var(--ambient-size) * 0.82);
+            height: calc(var(--ambient-size) * 0.94);
+          }
+        }
+      `}</style>
+
+      <style jsx global>{`
+        .publicExperienceWrap section > div {
+          position: relative;
+          z-index: 2;
+        }
+      `}</style>
+    </>
+  );
+}
+
+const publicExperienceWrapStyle = {
+  position: "relative",
+  minHeight: "100svh",
+  isolation: "isolate",
+  overflow: "hidden",
+};
+
+const ambientLayerStyle = {
+  position: "fixed",
+  inset: 0,
+  overflow: "hidden",
+  pointerEvents: "none",
+  zIndex: 1,
+};
+
+const stateShellStyle = {
+  minHeight: "100svh",
+  display: "grid",
+  placeItems: "center",
   background: "linear-gradient(180deg, #f8fafc 0%, #fffaf5 100%)",
-  padding: "20px 12px 56px",
-  fontFamily: "Inter, Arial, sans-serif",
-  color: "#0f172a",
+  padding: 16,
 };
 
-const shellStyle = {
-  maxWidth: 1160,
-  margin: "0 auto",
-  width: "100%",
-};
-
-const brandStyle = {
-  letterSpacing: "0.2em",
-  fontSize: 12,
-  color: "#64748b",
-  marginBottom: 16,
-  textAlign: "center",
-};
-
-const heroCardStyle = {
-  background: "rgba(255,255,255,0.94)",
-  border: "1px solid #e5e7eb",
-  borderRadius: 32,
-  boxShadow: "0 18px 48px rgba(15, 23, 42, 0.06)",
-};
-
-const heroGridStyle = {
-  display: "grid",
-  gap: 28,
-  alignItems: "center",
-};
-
-const heroTextColumnStyle = {
-  display: "flex",
-  flexDirection: "column",
-  alignItems: "flex-start",
-};
-
-const heroMetaRowStyle = {
-  display: "flex",
-  gap: 10,
-  flexWrap: "wrap",
-  alignItems: "center",
-  marginBottom: 18,
-};
-
-const heroMetaRowMobileStyle = {
-  display: "flex",
-  gap: 8,
-  flexWrap: "wrap",
-  alignItems: "center",
-  justifyContent: "center",
-  marginBottom: 12,
-};
-
-const heroBadgeStyle = {
-  display: "inline-block",
-  background: "#f8fafc",
-  border: "1px solid #dbeafe",
-  color: "#475569",
-  borderRadius: 999,
-  padding: "9px 15px",
-  fontSize: 13,
-};
-
-const heroInternalIdStyle = {
-  display: "inline-block",
-  background: "#fffaf5",
-  border: "1px solid #f5d0a9",
-  color: "#9a3412",
-  borderRadius: 999,
-  padding: "9px 15px",
-  fontSize: 12,
-  letterSpacing: "0.05em",
-};
-
-const heroTitleStyle = {
-  lineHeight: 0.95,
-  margin: "0 0 18px",
-  fontWeight: 800,
-  letterSpacing: "-0.04em",
-  color: "#16213b",
-  overflowWrap: "anywhere",
-};
-
-const heroIntroStyle = {
-  margin: 0,
-  color: "#475569",
-  fontSize: 20,
-  lineHeight: 1.8,
-  maxWidth: 560,
-};
-
-const heroInfoPillsStyle = {
-  display: "flex",
-  gap: 12,
-  flexWrap: "wrap",
-  marginTop: 18,
-};
-
-const infoPillStyle = {
-  display: "inline-flex",
-  flexDirection: "column",
-  gap: 4,
-  background: "#ffffff",
-  border: "1px solid #e2e8f0",
-  borderRadius: 18,
-  padding: "12px 14px",
-  color: "#334155",
-  maxWidth: 360,
-  boxShadow: "0 8px 20px rgba(15, 23, 42, 0.04)",
-};
-
-const infoPillLabelStyle = {
-  fontSize: 11,
-  letterSpacing: "0.12em",
-  textTransform: "uppercase",
-  color: "#94a3b8",
-  fontWeight: 700,
-};
-
-const teaserBoxStyle = {
-  marginTop: 22,
-  background: "#fff7ed",
-  border: "1px solid #fed7aa",
-  borderRadius: 22,
-  padding: 18,
-  color: "#9a3412",
-  fontSize: 16,
-  lineHeight: 1.8,
-  width: "100%",
-  boxSizing: "border-box",
-};
-
-const heroVisualColumnStyle = {
-  display: "flex",
-  justifyContent: "center",
-  alignItems: "center",
-};
-
-const heroImageFrameStyle = {
-  width: "100%",
-  maxWidth: 440,
-  background: "linear-gradient(180deg, #fffaf5 0%, #f8fafc 100%)",
-  border: "1px solid #e5e7eb",
-  borderRadius: 30,
-  padding: 14,
-  boxShadow: "0 18px 44px rgba(15, 23, 42, 0.08)",
-  overflow: "hidden",
-  boxSizing: "border-box",
-};
-
-const heroImageStyle = {
-  width: "100%",
-  display: "block",
-  objectFit: "cover",
-  borderRadius: 22,
-};
-
-const heroImageFallbackStyle = {
-  minHeight: 320,
-  borderRadius: 22,
-  border: "1px dashed #cbd5e1",
-  background: "linear-gradient(135deg, #f5efe6 0%, #f1f5f9 100%)",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  flexDirection: "column",
-  textAlign: "center",
-  padding: 24,
-};
-
-const heroImageFallbackTitleStyle = {
-  fontSize: 24,
-  fontWeight: 700,
-  marginBottom: 8,
-  color: "#0f172a",
-};
-
-const heroImageFallbackTextStyle = {
-  color: "#64748b",
-  lineHeight: 1.7,
-  maxWidth: 240,
-};
-
-const mobileHeroStackStyle = {
-  display: "grid",
-  gap: 12,
-};
-
-const mobileImageOuterStyle = {
-  width: "100%",
-  marginTop: 4,
-};
-
-const mobileImageFrameStyle = {
-  width: "100%",
-  background: "linear-gradient(180deg, #fffaf5 0%, #f8fafc 100%)",
-  border: "1px solid #e5e7eb",
-  borderRadius: 24,
-  padding: 10,
-  boxShadow: "0 14px 30px rgba(15, 23, 42, 0.08)",
-  boxSizing: "border-box",
-  overflow: "hidden",
-};
-
-const mobileHeroImageStyle = {
-  width: "100%",
-  height: "auto",
-  maxHeight: "62vh",
-  display: "block",
-  objectFit: "contain",
-  objectPosition: "center top",
-  borderRadius: 18,
-  background: "#ffffff",
-};
-
-const mobileIntroStyle = {
-  margin: "2px 0 0",
-  color: "#475569",
-  fontSize: 16,
-  lineHeight: 1.7,
-  textAlign: "left",
-};
-
-const mobileTeaserBoxStyle = {
-  background: "#fff7ed",
-  border: "1px solid #fed7aa",
-  borderRadius: 18,
-  padding: 14,
-  color: "#9a3412",
-  fontSize: 15,
-  lineHeight: 1.75,
-  textAlign: "left",
-};
-
-const mobileHeartBoxStyle = {
-  background: "#ffffff",
-  border: "1px solid #e2e8f0",
-  borderRadius: 18,
-  padding: 14,
-  boxShadow: "0 8px 20px rgba(15, 23, 42, 0.04)",
-  textAlign: "left",
-};
-
-const mobileHeartLabelStyle = {
-  fontSize: 11,
-  letterSpacing: "0.12em",
-  textTransform: "uppercase",
-  color: "#94a3b8",
-  fontWeight: 700,
-  marginBottom: 6,
-};
-
-const mobileHeartTextStyle = {
-  color: "#334155",
-  lineHeight: 1.7,
-};
-
-const contentGridStyle = {
-  display: "grid",
-  gap: 22,
-  marginTop: 24,
-};
-
-const mainColumnStyle = {
-  display: "grid",
-  gap: 22,
-};
-
-const sideColumnStyle = {
-  display: "grid",
-  gap: 22,
-};
-
-const sectionCardStyle = {
-  background: "#ffffff",
-  border: "1px solid #e5e7eb",
-  borderRadius: 30,
-  boxShadow: "0 12px 36px rgba(15, 23, 42, 0.04)",
-};
-
-const sectionLabelStyle = {
-  fontSize: 12,
-  letterSpacing: "0.16em",
-  textTransform: "uppercase",
-  color: "#94a3b8",
-  marginBottom: 14,
-  fontWeight: 700,
-};
-
-const storyTextStyle = {
-  fontSize: 18,
-  lineHeight: 2,
-  color: "#334155",
-  whiteSpace: "pre-wrap",
-  letterSpacing: "0.01em",
-};
-
-const miniGridStyle = {
-  display: "grid",
-  gap: 16,
-};
-
-const miniCardStyle = {
-  background: "#f8fafc",
-  border: "1px solid #e2e8f0",
-  borderRadius: 22,
-  padding: 18,
-};
-
-const miniTitleStyle = {
-  fontWeight: 700,
-  marginBottom: 8,
-  color: "#0f172a",
-};
-
-const miniTextStyle = {
-  color: "#475569",
-  lineHeight: 1.9,
-  fontSize: 16,
-  letterSpacing: "0.01em",
-};
-
-const infoListStyle = {
-  display: "grid",
-  gap: 16,
-};
-
-const infoRowStyle = {
-  paddingBottom: 14,
-  borderBottom: "1px solid #f1f5f9",
-};
-
-const infoKeyStyle = {
-  fontSize: 12,
-  textTransform: "uppercase",
-  letterSpacing: "0.12em",
-  color: "#94a3b8",
-  marginBottom: 6,
-  fontWeight: 700,
-};
-
-const infoValueStyle = {
-  color: "#334155",
-  lineHeight: 1.8,
-  fontSize: 16,
-  overflowWrap: "anywhere",
-};
-
-const sideTextStyle = {
-  margin: 0,
-  color: "#475569",
-  lineHeight: 1.9,
-};
-
-const loadingCardStyle = {
+const stateCardStyle = {
   background: "#ffffff",
   border: "1px solid #e5e7eb",
   borderRadius: 28,
-  padding: 32,
-  textAlign: "center",
+  padding: 28,
   color: "#64748b",
   fontSize: 18,
+  textAlign: "center",
 };
 
 const errorCardStyle = {
@@ -789,4 +367,17 @@ const errorCardStyle = {
   borderRadius: 28,
   padding: 28,
   textAlign: "center",
+  maxWidth: 480,
+};
+
+const errorTitleStyle = {
+  margin: "0 0 12px",
+  fontSize: 28,
+  color: "#0f172a",
+};
+
+const errorTextStyle = {
+  margin: 0,
+  color: "#64748b",
+  lineHeight: 1.8,
 };
