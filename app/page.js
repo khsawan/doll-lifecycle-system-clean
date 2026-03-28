@@ -5773,6 +5773,36 @@ export default function Page() {
       {dangerZoneDepartmentContent}
     </>
   );
+  const contentPipelineBoundaryContent = (
+    <div style={{ marginTop: 24, display: "grid", gap: 20 }}>
+      <div style={contentManagementPanelStyle}>
+        <div>
+          <div style={{ ...sectionLabelStyle, marginBottom: 6 }}>Pipeline Boundary</div>
+          <div style={contentManagementTitleStyle}>Content Work Lives in Content Studio</div>
+        </div>
+
+        <div style={contentManagementPanelMetaStyle}>
+          Use Content Studio for story, content pack, social, and generated experience
+          content work for this doll.
+        </div>
+
+        <div style={operatorHintStyle("muted")}>
+          The Production Pipeline remains the control surface for stage progression.
+          Return here when the content work is ready to review or progress.
+        </div>
+
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+          <button
+            type="button"
+            onClick={() => setSelectedWorkspaceMode("content_studio")}
+            style={primaryButton}
+          >
+            Open Content Studio
+          </button>
+        </div>
+      </div>
+    </div>
+  );
   const readyStageContent = (
     <>
       {overviewSummaryContent}
@@ -5786,7 +5816,7 @@ export default function Page() {
       : currentStageView === "character"
         ? characterDepartmentContent
         : currentStageView === "content"
-          ? contentDepartmentContent
+          ? contentPipelineBoundaryContent
           : currentStageView === "gateway"
             ? (
                 <>
@@ -5919,11 +5949,12 @@ export default function Page() {
     </>
   );
   const contentStudioWorkspaceContent = (
-    <>
+    <div style={contentStudioWorkspaceStackStyle}>
       {sharedWorkspaceFeedbackContent}
       {contentManagementWorkspaceContent}
+      {contentDepartmentContent}
       {contentStudioGeneratedDraftContent}
-    </>
+    </div>
   );
   const selectedWorkspaceContent =
     currentSelectedWorkspaceMode === "pipeline"
@@ -6001,8 +6032,8 @@ export default function Page() {
           <div style={contentManagementTitleStyle}>Operations Board</div>
         </div>
         <div style={operationsBoardMetaStyle}>
-          A read-only triage layer that shows which dolls need attention and routes the
-          operator into the correct workspace.
+          A triage and routing layer that highlights dolls needing attention and routes
+          the operator into the correct workspace.
         </div>
       </div>
 
@@ -6280,32 +6311,18 @@ export default function Page() {
             style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 28, padding: 22 }}
             data-selected-readiness={selectedReadiness.overall ? "ready" : "incomplete"}
           >
-            <h2 style={{ marginTop: 0, fontSize: 24 }}>Create &amp; Select Dolls</h2>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", gap: 12, flexWrap: "wrap" }}>
+              <div>
+                <h2 style={{ marginTop: 0, marginBottom: 0, fontSize: 24 }}>Doll Navigator</h2>
+                <div style={{ color: "#64748b", marginTop: 8, lineHeight: 1.6 }}>
+                  Selection only. Choose a doll to open its dashboard, production pipeline,
+                  or content studio workspace.
+                </div>
+              </div>
 
-            <div style={{ marginTop: 20 }}>
-              <label style={labelStyle}>Doll name or temporary label</label>
-              <input value={newDollName} onChange={(e) => setNewDollName(e.target.value)} style={inputStyle} />
-            </div>
-
-            <div style={{ marginTop: 16 }}>
-              <label style={labelStyle}>Artist name</label>
-              <input value={newArtistName} onChange={(e) => setNewArtistName(e.target.value)} style={inputStyle} />
-            </div>
-
-            <div style={{ marginTop: 16 }}>
-              <label style={labelStyle}>Theme</label>
-              <select value={newTheme} onChange={(e) => setNewTheme(e.target.value)} style={inputStyle}>
-                {themes.map((theme) => (
-                  <option key={theme} value={theme}>
-                    {theme}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
-              <button onClick={createDoll} style={primaryButton}>Create Intake Entry</button>
-              <button onClick={() => { loadThemes(); loadDolls(); }} style={secondaryButton}>Refresh</button>
+              <button onClick={() => { loadThemes(); loadDolls(); }} style={secondaryButton}>
+                Refresh List
+              </button>
             </div>
 
             <div style={{ borderTop: "1px solid #e2e8f0", marginTop: 22, paddingTop: 18 }}>
@@ -7650,6 +7667,11 @@ const contentManagementActionGridStyle = {
   display: "grid",
   gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
   gap: 10,
+};
+
+const contentStudioWorkspaceStackStyle = {
+  display: "grid",
+  gap: 20,
 };
 
 const contentStudioDraftSectionStyle = {

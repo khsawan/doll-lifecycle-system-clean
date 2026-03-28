@@ -202,6 +202,13 @@ The selected-doll admin workspace now opens through a doll-specific dashboard en
 - Only one of these doll-specific workspaces is visible at a time.
 - Both workspaces remain inside the same doll-centered admin flow.
 
+### Workspace Boundaries
+
+- The Navigator is selection-only and is used to choose the active doll.
+- The Operations Board is a triage and routing surface for multi-doll attention management.
+- `Content Studio` is the content operations workspace and contains content generation, editing, review, and publishing controls.
+- `Production Pipeline` remains the control surface for stage progression, completion, reopening, and readiness-driven workflow movement.
+
 ## Admin Content Management Layer
 
 A lightweight content management layer now exists inside the selected-doll admin workspace.
