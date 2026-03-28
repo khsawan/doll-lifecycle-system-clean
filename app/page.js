@@ -414,6 +414,107 @@ function readStoryVariationCandidates(result) {
     .filter(Boolean);
 }
 
+function normalizeContentPackVariationCandidate(value, index) {
+  const shortIntro =
+    typeof value?.short_intro === "string"
+      ? value.short_intro.trim()
+      : typeof value?.task?.short_intro === "string"
+        ? value.task.short_intro.trim()
+        : "";
+  const contentBlurb =
+    typeof value?.content_blurb === "string"
+      ? value.content_blurb.trim()
+      : typeof value?.task?.content_blurb === "string"
+        ? value.task.content_blurb.trim()
+        : "";
+  const promoHook =
+    typeof value?.promo_hook === "string"
+      ? value.promo_hook.trim()
+      : typeof value?.task?.promo_hook === "string"
+        ? value.task.promo_hook.trim()
+        : "";
+  const cta =
+    typeof value?.cta === "string"
+      ? value.cta.trim()
+      : typeof value?.task?.cta === "string"
+        ? value.task.cta.trim()
+        : "";
+
+  if (!shortIntro || !contentBlurb || !promoHook || !cta) {
+    return null;
+  }
+
+  const rawId = typeof value?.id === "string" ? value.id.trim() : "";
+  const rawLabel = typeof value?.label === "string" ? value.label.trim() : "";
+
+  return {
+    id: /^[a-z0-9_-]+$/i.test(rawId) ? rawId : `v${index + 1}`,
+    label: rawLabel || `Version ${index + 1}`,
+    short_intro: shortIntro,
+    content_blurb: contentBlurb,
+    promo_hook: promoHook,
+    cta,
+  };
+}
+
+function readContentPackVariationCandidates(result) {
+  if (!Array.isArray(result?.variations)) {
+    return [];
+  }
+
+  return result.variations
+    .slice(0, 3)
+    .map((variation, index) => normalizeContentPackVariationCandidate(variation, index))
+    .filter(Boolean);
+}
+
+function normalizeSocialVariationCandidate(value, index) {
+  const socialHook =
+    typeof value?.social_hook === "string"
+      ? value.social_hook.trim()
+      : typeof value?.task?.social_hook === "string"
+        ? value.task.social_hook.trim()
+        : "";
+  const socialCaption =
+    typeof value?.social_caption === "string"
+      ? value.social_caption.trim()
+      : typeof value?.task?.social_caption === "string"
+        ? value.task.social_caption.trim()
+        : "";
+  const socialCta =
+    typeof value?.social_cta === "string"
+      ? value.social_cta.trim()
+      : typeof value?.task?.social_cta === "string"
+        ? value.task.social_cta.trim()
+        : "";
+
+  if (!socialHook || !socialCaption || !socialCta) {
+    return null;
+  }
+
+  const rawId = typeof value?.id === "string" ? value.id.trim() : "";
+  const rawLabel = typeof value?.label === "string" ? value.label.trim() : "";
+
+  return {
+    id: /^[a-z0-9_-]+$/i.test(rawId) ? rawId : `v${index + 1}`,
+    label: rawLabel || `Version ${index + 1}`,
+    social_hook: socialHook,
+    social_caption: socialCaption,
+    social_cta: socialCta,
+  };
+}
+
+function readSocialVariationCandidates(result) {
+  if (!Array.isArray(result?.variations)) {
+    return [];
+  }
+
+  return result.variations
+    .slice(0, 3)
+    .map((variation, index) => normalizeSocialVariationCandidate(variation, index))
+    .filter(Boolean);
+}
+
 function emptyContentPackState() {
   return {
     caption: "",
@@ -642,40 +743,6 @@ function buildStoryPack(doll, tone) {
     mini1,
     mini2,
     slug: slugify(name),
-  };
-}
-
-function buildTemporaryDebugStoryVariationPayload(fallbackContent = "") {
-  // TEMP DEBUG LOGIC — remove after API-backed D1 validation is complete.
-  const baseStory =
-    typeof fallbackContent === "string" ? fallbackContent.trim() : "";
-
-  if (!baseStory) {
-    return {
-      variations: [],
-    };
-  }
-
-  const playfulVariation = baseStory.includes("By the end of each day")
-    ? baseStory.replace(
-        "By the end of each day",
-        "Before the day was done"
-      )
-    : `${baseStory} A little laugh and a warm hello made the whole moment feel brighter.`;
-
-  return {
-    variations: [
-      {
-        id: "v1",
-        label: "Gentle & calm",
-        story_main: baseStory,
-      },
-      {
-        id: "v2",
-        label: "Warm & playful",
-        story_main: playfulVariation,
-      },
-    ],
   };
 }
 
@@ -1174,11 +1241,15 @@ export default function Page() {
   const [contentPack, setContentPack] = useState(emptyContentPackState);
   const [contentPackGenerating, setContentPackGenerating] = useState(false);
   const [contentPackSaving, setContentPackSaving] = useState(false);
+  const [contentPackVariations, setContentPackVariations] = useState([]);
+  const [selectedContentPackVariationId, setSelectedContentPackVariationId] = useState("");
   const [savedContentPackSnapshot, setSavedContentPackSnapshot] = useState(null);
 
   const [order, setOrder] = useState(emptyOrderState);
   const [socialGenerating, setSocialGenerating] = useState(false);
   const [socialSaving, setSocialSaving] = useState(false);
+  const [socialVariations, setSocialVariations] = useState([]);
+  const [selectedSocialVariationId, setSelectedSocialVariationId] = useState("");
   const [savedSocialSnapshot, setSavedSocialSnapshot] = useState(null);
   const [playActivity, setPlayActivity] = useState(emptyPlayActivityState);
 
@@ -2362,8 +2433,12 @@ export default function Page() {
     setStorySaving(false);
     setContentPackGenerating(false);
     setContentPackSaving(false);
+    setContentPackVariations([]);
+    setSelectedContentPackVariationId("");
     setSocialGenerating(false);
     setSocialSaving(false);
+    setSocialVariations([]);
+    setSelectedSocialVariationId("");
     setCommerceSaving(false);
     setPipelineStageCompleting("");
     setPipelineStageReopening("");
@@ -3132,6 +3207,39 @@ export default function Page() {
     }));
   }
 
+  function applyContentPackVariationToEditor(variation) {
+    if (
+      !variation?.short_intro ||
+      !variation?.content_blurb ||
+      !variation?.promo_hook ||
+      !variation?.cta
+    ) {
+      return;
+    }
+
+    setSelectedContentPackVariationId(variation.id || "");
+    setContentPack({
+      caption: variation.short_intro,
+      hook: variation.promo_hook,
+      blurb: variation.content_blurb,
+      cta: variation.cta,
+    });
+  }
+
+  function applySocialVariationToEditor(variation) {
+    if (!variation?.social_hook || !variation?.social_caption || !variation?.social_cta) {
+      return;
+    }
+
+    setSelectedSocialVariationId(variation.id || "");
+    setIdentity((prev) => ({
+      ...prev,
+      social_hook: variation.social_hook,
+      social_caption: variation.social_caption,
+      social_cta: variation.social_cta,
+    }));
+  }
+
   async function applyTone(tone) {
     setStoryTone(tone);
     if (!selected) return;
@@ -3163,7 +3271,6 @@ export default function Page() {
       }
 
       const nextStoryVariations = readStoryVariationCandidates(data?.result);
-      console.log("DEBUG STORY VARIATIONS AFTER GENERATION", nextStoryVariations);
       const generatedMainStory =
         nextStoryVariations[0]?.story_main ||
         (typeof data?.result?.story_main === "string"
@@ -3190,25 +3297,7 @@ export default function Page() {
 
       setNotice(`${tone} story pack generated.`);
     } catch (err) {
-      // TEMP DEBUG LOGIC — remove after API-backed D1 validation is complete.
-      const debugStoryVariationPayload = buildTemporaryDebugStoryVariationPayload(
-        pack.mainStory
-      );
-      const debugStoryVariations = readStoryVariationCandidates(
-        debugStoryVariationPayload
-      );
-      console.log("DEBUG STORY VARIATIONS AFTER GENERATION", debugStoryVariations);
-
-      if (debugStoryVariations.length >= 1) {
-        console.log("VARIATIONS SET:", debugStoryVariations);
-        setStoryVariations(debugStoryVariations);
-        setSelectedStoryVariationId("");
-        setError(
-          `${err?.message || "Failed to generate story."} Using temporary local story variations for D1 validation.`
-        );
-      } else {
-        setError(err?.message || "Failed to generate story.");
-      }
+      setError(err?.message || "Failed to generate story.");
     } finally {
       setStoryGenerating(false);
     }
@@ -3818,17 +3907,28 @@ export default function Page() {
       }
 
       const result = data?.result || {};
-      const nextContentPack = {
-        caption: typeof result.short_intro === "string" ? result.short_intro.trim() : "",
-        hook: typeof result.promo_hook === "string" ? result.promo_hook.trim() : "",
-        blurb: typeof result.content_blurb === "string" ? result.content_blurb.trim() : "",
-        cta: typeof result.cta === "string" ? result.cta.trim() : "",
-      };
+      const nextContentPackVariations = readContentPackVariationCandidates(result);
+      const selectedVariation = nextContentPackVariations[0] || null;
+      const nextContentPack = selectedVariation
+        ? {
+            caption: selectedVariation.short_intro,
+            hook: selectedVariation.promo_hook,
+            blurb: selectedVariation.content_blurb,
+            cta: selectedVariation.cta,
+          }
+        : {
+            caption: typeof result.short_intro === "string" ? result.short_intro.trim() : "",
+            hook: typeof result.promo_hook === "string" ? result.promo_hook.trim() : "",
+            blurb: typeof result.content_blurb === "string" ? result.content_blurb.trim() : "",
+            cta: typeof result.cta === "string" ? result.cta.trim() : "",
+          };
 
       if (!nextContentPack.caption || !nextContentPack.hook || !nextContentPack.blurb || !nextContentPack.cta) {
         throw new Error("Content pack generation returned incomplete data.");
       }
 
+      setContentPackVariations(nextContentPackVariations);
+      setSelectedContentPackVariationId(selectedVariation?.id || "");
       setContentPack(nextContentPack);
       setNotice("Content pack generated.");
     } catch (err) {
@@ -3865,17 +3965,27 @@ export default function Page() {
       }
 
       const result = data?.result || {};
-      const nextSocialContent = {
-        social_hook: typeof result.social_hook === "string" ? result.social_hook.trim() : "",
-        social_caption:
-          typeof result.social_caption === "string" ? result.social_caption.trim() : "",
-        social_cta: typeof result.social_cta === "string" ? result.social_cta.trim() : "",
-      };
+      const nextSocialVariations = readSocialVariationCandidates(result);
+      const selectedVariation = nextSocialVariations[0] || null;
+      const nextSocialContent = selectedVariation
+        ? {
+            social_hook: selectedVariation.social_hook,
+            social_caption: selectedVariation.social_caption,
+            social_cta: selectedVariation.social_cta,
+          }
+        : {
+            social_hook: typeof result.social_hook === "string" ? result.social_hook.trim() : "",
+            social_caption:
+              typeof result.social_caption === "string" ? result.social_caption.trim() : "",
+            social_cta: typeof result.social_cta === "string" ? result.social_cta.trim() : "",
+          };
 
       if (!nextSocialContent.social_hook || !nextSocialContent.social_caption || !nextSocialContent.social_cta) {
         throw new Error("Social generation returned incomplete data.");
       }
 
+      setSocialVariations(nextSocialVariations);
+      setSelectedSocialVariationId(selectedVariation?.id || "");
       setIdentity((prev) => ({
         ...prev,
         social_hook: nextSocialContent.social_hook,
@@ -4281,11 +4391,6 @@ export default function Page() {
       </fieldset>
     </div>
   );
-  // TEMP DEBUG LOGIC — remove after API-backed D1 validation is complete.
-  if (typeof window !== "undefined") {
-    console.log("DEBUG STORY VARIATIONS AT RENDER", storyVariations);
-  }
-
   const contentDepartmentContent = (
     <div style={{ marginTop: 24, display: "grid", gap: 20 }}>
       <fieldset
@@ -4347,50 +4452,6 @@ export default function Page() {
             <button onClick={() => applyTone("Magical")} style={secondaryButton} disabled={storyGenerating}>Magical</button>
           </div>
         </div>
-
-        {/* TEMP DEBUG LOGIC — remove after API-backed D1 validation is complete. */}
-        <div
-          style={storyVariationDebugStatusStyle(
-            storyVariations && storyVariations.length > 0
-          )}
-        >
-          DEBUG variation state:{" "}
-          {storyVariations && storyVariations.length > 0
-            ? `populated (${storyVariations.length})`
-            : "empty"}
-        </div>
-
-        {/* TEMP DEBUG LOGIC — remove after API-backed D1 validation is complete. */}
-        {storyVariations && storyVariations.length > 0 ? (
-          <div style={storyVariationDebugPanelStyle}>
-            <div style={storyVariationDebugTitleStyle}>DEBUG STORY VARIATIONS</div>
-            <div style={storyVariationDebugMetaStyle}>
-              Variation count: {storyVariations.length}
-            </div>
-
-            <div style={storyVariationDebugGridStyle}>
-              {storyVariations.map((variation) => {
-                const previewText =
-                  variation.story_main.length > 120
-                    ? `${variation.story_main.slice(0, 120)}...`
-                    : variation.story_main;
-
-                return (
-                  <div key={`debug-${variation.id}`} style={storyVariationDebugCardStyle}>
-                    <div style={storyVariationDebugLabelStyle}>{variation.label}</div>
-                    <div style={storyVariationDebugPreviewStyle}>{previewText}</div>
-                    <button
-                      onClick={() => applyStoryVariationToEditor(variation)}
-                      style={storyVariationDebugActionStyle}
-                    >
-                      USE DEBUG VERSION
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        ) : null}
 
         {storyVariations && storyVariations.length > 0 ? (
           <div style={storyVariationPanelStyle}>
@@ -4499,11 +4560,64 @@ export default function Page() {
           </div>
         </div>
 
+        {contentPackVariations && contentPackVariations.length > 0 ? (
+          <div style={storyVariationPanelStyle}>
+            <div style={storyVariationPanelHeaderStyle}>
+              <div>
+                <div style={storyVariationPanelTitleStyle}>Content Pack candidates</div>
+                <div style={storyVariationPanelHintStyle}>
+                  Choose the version to place in the editable fields. Saving still happens only when you click Save Content Pack.
+                </div>
+              </div>
+            </div>
+
+            <div style={storyVariationGridStyle}>
+              {contentPackVariations.map((variation) => {
+                const isSelected = selectedContentPackVariationId === variation.id;
+
+                return (
+                  <div key={variation.id} style={storyVariationCardStyle(isSelected)}>
+                    <div style={storyVariationCardHeaderStyle}>
+                      <div style={storyVariationCardLabelStyle}>{variation.label}</div>
+                      <div style={storyVariationBadgeStyle(isSelected)}>
+                        {isSelected ? "In editor" : variation.id.toUpperCase()}
+                      </div>
+                    </div>
+
+                    <div style={contentPackVariationPreviewStackStyle}>
+                      <div style={contentPackVariationPreviewBlockStyle}>
+                        <div style={contentPackVariationPreviewLabelStyle}>Short intro</div>
+                        <p style={storyVariationPreviewStyle}>{variation.short_intro}</p>
+                      </div>
+
+                      <div style={contentPackVariationPreviewBlockStyle}>
+                        <div style={contentPackVariationPreviewLabelStyle}>Promo hook</div>
+                        <p style={storyVariationPreviewStyle}>{variation.promo_hook}</p>
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => applyContentPackVariationToEditor(variation)}
+                      style={storyVariationActionStyle(isSelected)}
+                      disabled={isSelected}
+                    >
+                      {isSelected ? "Using this version" : "Use this version"}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
+
         <div style={contentCardStyle}>
           <div style={sectionLabelStyle}>Instagram Caption</div>
           <textarea
             value={contentPack.caption}
-            onChange={(e) => setContentPack({ ...contentPack, caption: e.target.value })}
+            onChange={(e) => {
+              setSelectedContentPackVariationId("");
+              setContentPack({ ...contentPack, caption: e.target.value });
+            }}
             style={{ ...inputStyle, minHeight: 140 }}
           />
         </div>
@@ -4513,7 +4627,10 @@ export default function Page() {
             <div style={sectionLabelStyle}>Short Promo Hook</div>
             <textarea
               value={contentPack.hook}
-              onChange={(e) => setContentPack({ ...contentPack, hook: e.target.value })}
+              onChange={(e) => {
+                setSelectedContentPackVariationId("");
+                setContentPack({ ...contentPack, hook: e.target.value });
+              }}
               style={{ ...inputStyle, minHeight: 120 }}
             />
           </div>
@@ -4522,7 +4639,10 @@ export default function Page() {
             <div style={sectionLabelStyle}>CTA</div>
             <textarea
               value={contentPack.cta}
-              onChange={(e) => setContentPack({ ...contentPack, cta: e.target.value })}
+              onChange={(e) => {
+                setSelectedContentPackVariationId("");
+                setContentPack({ ...contentPack, cta: e.target.value });
+              }}
               style={{ ...inputStyle, minHeight: 120 }}
             />
           </div>
@@ -4532,7 +4652,10 @@ export default function Page() {
           <div style={sectionLabelStyle}>Product Blurb</div>
           <textarea
             value={contentPack.blurb}
-            onChange={(e) => setContentPack({ ...contentPack, blurb: e.target.value })}
+            onChange={(e) => {
+              setSelectedContentPackVariationId("");
+              setContentPack({ ...contentPack, blurb: e.target.value });
+            }}
             style={{ ...inputStyle, minHeight: 140 }}
           />
         </div>
@@ -4568,12 +4691,69 @@ export default function Page() {
             </div>
           </div>
 
+          {socialVariations && socialVariations.length > 0 ? (
+            <div style={storyVariationPanelStyle}>
+              <div style={storyVariationPanelHeaderStyle}>
+                <div>
+                  <div style={storyVariationPanelTitleStyle}>Social candidates</div>
+                  <div style={storyVariationPanelHintStyle}>
+                    Choose the version to place in the editable fields. Saving still happens only when you click Save Social Content.
+                  </div>
+                </div>
+              </div>
+
+              <div style={storyVariationGridStyle}>
+                {socialVariations.map((variation) => {
+                  const isSelected = selectedSocialVariationId === variation.id;
+                  const captionPreview =
+                    variation.social_caption.length > 120
+                      ? `${variation.social_caption.slice(0, 120).trimEnd()}...`
+                      : variation.social_caption;
+
+                  return (
+                    <div key={variation.id} style={storyVariationCardStyle(isSelected)}>
+                      <div style={storyVariationCardHeaderStyle}>
+                        <div style={storyVariationCardLabelStyle}>{variation.label}</div>
+                        <div style={storyVariationBadgeStyle(isSelected)}>
+                          {isSelected ? "In editor" : variation.id.toUpperCase()}
+                        </div>
+                      </div>
+
+                      <div style={contentPackVariationPreviewStackStyle}>
+                        <div style={contentPackVariationPreviewBlockStyle}>
+                          <div style={contentPackVariationPreviewLabelStyle}>Hook</div>
+                          <p style={storyVariationPreviewStyle}>{variation.social_hook}</p>
+                        </div>
+
+                        <div style={contentPackVariationPreviewBlockStyle}>
+                          <div style={contentPackVariationPreviewLabelStyle}>Caption preview</div>
+                          <p style={storyVariationPreviewStyle}>{captionPreview}</p>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => applySocialVariationToEditor(variation)}
+                        style={storyVariationActionStyle(isSelected)}
+                        disabled={isSelected}
+                      >
+                        {isSelected ? "Using this version" : "Use this version"}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+
           <div style={{ display: "grid", gap: 16 }}>
             <div>
               <label style={labelStyle}>Hook</label>
               <input
                 value={identity.social_hook}
-                onChange={(e) => setIdentity({ ...identity, social_hook: e.target.value })}
+                onChange={(e) => {
+                  setSelectedSocialVariationId("");
+                  setIdentity({ ...identity, social_hook: e.target.value });
+                }}
                 style={inputStyle}
               />
             </div>
@@ -4582,7 +4762,10 @@ export default function Page() {
               <label style={labelStyle}>Caption</label>
               <textarea
                 value={identity.social_caption}
-                onChange={(e) => setIdentity({ ...identity, social_caption: e.target.value })}
+                onChange={(e) => {
+                  setSelectedSocialVariationId("");
+                  setIdentity({ ...identity, social_caption: e.target.value });
+                }}
                 style={{ ...inputStyle, minHeight: 140, resize: "vertical" }}
               />
             </div>
@@ -4591,7 +4774,10 @@ export default function Page() {
               <label style={labelStyle}>CTA</label>
               <input
                 value={identity.social_cta}
-                onChange={(e) => setIdentity({ ...identity, social_cta: e.target.value })}
+                onChange={(e) => {
+                  setSelectedSocialVariationId("");
+                  setIdentity({ ...identity, social_cta: e.target.value });
+                }}
                 style={inputStyle}
               />
             </div>
@@ -6337,85 +6523,6 @@ const secondaryButton = {
   cursor: "pointer",
 };
 
-function storyVariationDebugStatusStyle(isPopulated = false) {
-  return {
-    marginBottom: 12,
-    padding: "10px 12px",
-    borderRadius: 14,
-    border: `1px solid ${isPopulated ? "#ef4444" : "#fca5a5"}`,
-    background: isPopulated ? "#fef2f2" : "#fff7ed",
-    color: "#991b1b",
-    fontSize: 13,
-    lineHeight: 1.5,
-    fontWeight: 700,
-  };
-}
-
-const storyVariationDebugPanelStyle = {
-  marginBottom: 16,
-  padding: 16,
-  borderRadius: 18,
-  border: "2px solid #dc2626",
-  background: "#fef2f2",
-  display: "grid",
-  gap: 12,
-};
-
-const storyVariationDebugTitleStyle = {
-  color: "#991b1b",
-  fontSize: 16,
-  lineHeight: 1.3,
-  fontWeight: 800,
-  letterSpacing: "0.04em",
-};
-
-const storyVariationDebugMetaStyle = {
-  color: "#7f1d1d",
-  fontSize: 14,
-  lineHeight: 1.5,
-  fontWeight: 600,
-};
-
-const storyVariationDebugGridStyle = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-  gap: 12,
-};
-
-const storyVariationDebugCardStyle = {
-  border: "1px solid #fca5a5",
-  borderRadius: 16,
-  background: "#fffafa",
-  padding: 14,
-  display: "grid",
-  gap: 10,
-};
-
-const storyVariationDebugLabelStyle = {
-  color: "#991b1b",
-  fontSize: 14,
-  lineHeight: 1.4,
-  fontWeight: 700,
-};
-
-const storyVariationDebugPreviewStyle = {
-  color: "#7f1d1d",
-  fontSize: 13,
-  lineHeight: 1.6,
-  whiteSpace: "pre-wrap",
-};
-
-const storyVariationDebugActionStyle = {
-  background: "#dc2626",
-  color: "#ffffff",
-  border: "none",
-  borderRadius: 14,
-  padding: "12px 14px",
-  fontSize: 13,
-  fontWeight: 700,
-  cursor: "pointer",
-};
-
 const storyVariationPanelStyle = {
   marginBottom: 20,
   display: "grid",
@@ -6497,6 +6604,24 @@ const storyVariationPreviewStyle = {
   lineHeight: 1.7,
   fontSize: 14,
   whiteSpace: "pre-wrap",
+};
+
+const contentPackVariationPreviewStackStyle = {
+  display: "grid",
+  gap: 12,
+};
+
+const contentPackVariationPreviewBlockStyle = {
+  display: "grid",
+  gap: 6,
+};
+
+const contentPackVariationPreviewLabelStyle = {
+  fontSize: 12,
+  fontWeight: 700,
+  color: "#64748b",
+  letterSpacing: "0.04em",
+  textTransform: "uppercase",
 };
 
 function storyVariationActionStyle(isSelected = false) {
