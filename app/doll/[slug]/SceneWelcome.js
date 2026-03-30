@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useState } from "react";
 
 export default function SceneWelcome({ universe, doll }) {
@@ -37,9 +38,12 @@ export default function SceneWelcome({ universe, doll }) {
         <div style={heroStackStyle}>
           {doll?.hero_image_url ? (
             <div style={heroImageWrapStyle}>
-              <img
+              <Image
                 src={doll.hero_image_url}
                 alt={doll?.name || "Doll"}
+                fill
+                unoptimized
+                sizes="(max-width: 768px) 100vw, 360px"
                 style={heroImageStyle}
               />
             </div>
@@ -55,7 +59,7 @@ export default function SceneWelcome({ universe, doll }) {
                 "A one-of-a-kind handmade friend with a story to discover."}
             </p>
             <div style={textRevealStyle(showIntro, 8, softNoteStyle)}>
-              Tap the right side to begin the story.
+              Use the navigation controls to begin the story.
             </div>
           </div>
         </div>
@@ -120,6 +124,8 @@ const heroImageWrapStyle = {
   width: "100%",
   maxWidth: 360,
   margin: "0 auto",
+  position: "relative",
+  aspectRatio: "4 / 5",
   borderRadius: 28,
   overflow: "hidden",
   background: "rgba(255, 255, 255, 0.1)",
@@ -130,10 +136,7 @@ const heroImageWrapStyle = {
 };
 
 const heroImageStyle = {
-  width: "100%",
-  display: "block",
   objectFit: "cover",
-  aspectRatio: "4 / 5",
 };
 
 const copyStackStyle = {

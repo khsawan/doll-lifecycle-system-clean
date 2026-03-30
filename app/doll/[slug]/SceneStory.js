@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 
 const PAGE_TRANSITION_MS = 320;
@@ -75,9 +76,12 @@ export default function SceneStory({ doll, scene, isActive, onPageIndexChange })
           <div style={storyVisualStyle}>
             <div style={storyVisualInnerStyle}>
               {currentPage?.image_url ? (
-                <img
+                <Image
                   src={currentPage.image_url}
                   alt={doll?.name || "Story scene"}
+                  fill
+                  unoptimized
+                  sizes="(max-width: 768px) 100vw, 720px"
                   style={storyImageStyle}
                 />
               ) : (
@@ -189,15 +193,14 @@ const storyVisualStyle = {
 };
 
 const storyVisualInnerStyle = {
+  position: "relative",
   animation: "storyVisualDrift 9s ease-in-out infinite",
+  aspectRatio: "4 / 3",
   willChange: "transform",
 };
 
 const storyImageStyle = {
-  width: "100%",
-  display: "block",
   objectFit: "cover",
-  aspectRatio: "4 / 3",
 };
 
 const storyFallbackStyle = {

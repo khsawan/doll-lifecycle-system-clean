@@ -1,5 +1,7 @@
 "use client";
 
+import Image from "next/image";
+
 export default function SceneMeetFriends({ scene }) {
   const friends = scene?.related_characters || [];
 
@@ -14,9 +16,12 @@ export default function SceneMeetFriends({ scene }) {
             <div key={friend.id || friend.slug || friend.name} style={cardStyle}>
               <div style={imageWrapStyle}>
                 {friend.image_url ? (
-                  <img
+                  <Image
                     src={friend.image_url}
                     alt={friend.name || "Friend"}
+                    fill
+                    unoptimized
+                    sizes="(max-width: 768px) 50vw, 240px"
                     style={imageStyle}
                   />
                 ) : (
@@ -88,6 +93,7 @@ const cardStyle = {
 
 const imageWrapStyle = {
   width: "100%",
+  position: "relative",
   borderRadius: 18,
   overflow: "hidden",
   background: "#ffffff",
@@ -95,10 +101,7 @@ const imageWrapStyle = {
 };
 
 const imageStyle = {
-  width: "100%",
-  height: "100%",
   objectFit: "cover",
-  display: "block",
 };
 
 const fallbackStyle = {
