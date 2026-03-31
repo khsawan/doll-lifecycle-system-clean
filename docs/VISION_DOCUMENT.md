@@ -1,7 +1,7 @@
 # MAILLE ET MERVEILLE — VISION DOCUMENT
-**Version:** 1.0  
-**Author:** Founder  
-**Status:** Active — read this first before anything else  
+**Version:** 1.1
+**Author:** Founder
+**Status:** Active — read this first before anything else
 **Audience:** Every person who works on or with this system
 
 ---
@@ -87,6 +87,69 @@ Content is warm, social, and full of quiet joy.
 
 ---
 
+## THE LIVING UNIVERSE MODEL
+
+This is one of the most important principles in the entire system.
+
+**The universe is the living entity. Not the doll.**
+
+A sold doll is never updated directly. The universe she belongs to grows —
+and she grows with it. Every child who owns a doll in a universe benefits
+automatically from every new story, every new activity, every new character
+that arrives in that universe. No effort per sold doll. No per-doll update
+pipeline. The universe does the work.
+
+### What this means for a child
+When a child scans their doll's QR code, they do not enter a static page
+about that doll. They enter the doll's living universe.
+
+- New stories appear when the universe releases them
+- New activities appear when the universe adds them
+- New friends appear when new dolls join the universe
+- Seasonal moments arrive when the universe celebrates them
+
+The doll is the child's permanent passport into that universe.
+She never expires. She never becomes outdated.
+She is always the child's guide into a world that keeps getting richer.
+
+### What this means commercially
+We never market directly to a sold doll's owner.
+We grow the universe — and the universe does the marketing.
+
+When a new Farm World doll arrives, every child who owns any Farm World doll
+discovers a new friend has arrived in their world. That is not a marketing
+message. That is a story moment. The universe just grew.
+
+When a new Farm World story is released, every Farm World doll page gains
+a new story to explore. One creation reaches every child in that universe.
+
+A parent whose child loves Farm World sees a new Farm World doll on Instagram.
+Their child already has Rosie. Now there is a new friend for Rosie.
+That is an upsell that feels like a gift, not a sale.
+
+The narrative does the selling. We never break the magic.
+
+### The content access model
+Every story and activity has an access scope set by the operator at publish time.
+
+| Scope | Meaning |
+|---|---|
+| Universe | Available to every doll in this universe automatically |
+| Character match | Available to dolls whose character profile matches |
+| Assigned | Operator manually assigns to specific dolls |
+| Exclusive | Permanently locked to one specific doll only |
+
+Default scope is Universe. The system resolves what content is available
+for each doll at render time — no per-doll update needed for universe-wide content.
+
+### New arrivals
+When a new doll joins a universe, every existing doll's public page
+reflects the new arrival in the universe discovery section.
+A child scanning Rosie's QR discovers that Clara has just arrived
+in Farm World — automatically, with no additional production effort.
+
+---
+
 ## THE TWO OBJECT TYPES
 
 ### Dolls
@@ -97,8 +160,8 @@ Every doll has:
 - A character identity: name, personality, emotional core, signature trait
 - A universe: the world she belongs to
 - A voice: generated via ElevenLabs, consistent across all her content
-- A story assignment: one or more stories from the universe library
-- Activity access: all universe activities, personalized with her name
+- A story access: stories from the universe library (scoped per content access model)
+- Activity access: universe activities, personalized with her name
 - A digital experience: a public page accessed via QR code
 - A production record: tracked from concept to sold
 
@@ -169,8 +232,7 @@ Five stages:
 4. **Commerce** — Doll listed, priced, QR active, ready for sale
 5. **Sold and archived** — Delivery tracked, record permanently frozen
 
-This is the core of the current system. All five stages are tracked
-through the production pipeline with stage lock rules.
+A sold doll's record is frozen. Her universe continues to grow around her.
 
 ---
 
@@ -178,11 +240,12 @@ through the production pipeline with stage lock rules.
 
 Stories and activities are created in the content builder.
 This is a distinct system within the platform — a creative tool for operators.
+All content is created at the universe level and flows down to dolls
+through the content access model.
 
 ### Stories
 A story is a narrative experience delivered through the public digital page.
-Stories belong to a universe and are assigned to individual dolls based on
-character match. One story can serve multiple dolls in the same universe.
+Stories belong to a universe. Access scope determines which dolls receive them.
 
 **Story types (planned):**
 - Flat linear stories — the child follows a narrative
@@ -190,7 +253,7 @@ character match. One story can serve multiple dolls in the same universe.
 
 **Story production lifecycle:**
 Template selection → element assembly (narration, sounds, images, minimal text)
-→ AI-assisted refinement → preview → approval → publish → assign to dolls
+→ AI-assisted refinement → preview → approval → publish → scope assignment
 
 **AI role in stories:**
 The operator is the director. AI assists with pacing, narration style,
@@ -199,8 +262,9 @@ The operator steers every decision.
 
 ### Activities
 An activity is an interactive experience the child engages with on the
-public digital page. Activities belong to a universe. Every doll in that
-universe has access to the same activities, personalized with the doll's name.
+public digital page. Activities belong to a universe.
+Access scope determines which dolls receive them.
+Doll name is personalized at render time.
 
 **Activity types (starting set):**
 - Tap and Discover — tap hidden elements to reveal sounds and animations
@@ -209,8 +273,8 @@ universe has access to the same activities, personalized with the doll's name.
 - Do It With Your Doll — offline imaginative play prompted by the page
 
 **Activity production lifecycle:**
-Activity type selection → element assembly → doll name personalization
-→ preview → publish → available to all universe dolls
+Activity type selection → element assembly → scope assignment
+→ preview → publish → available per scope
 
 ---
 
@@ -219,11 +283,15 @@ Activity type selection → element assembly → doll name personalization
 Every doll has a public page accessed by scanning their QR code.
 This is the portal for everything the child experiences digitally.
 
+The page serves two types of content simultaneously:
+1. Doll-specific content — her name, voice, character, exclusive content
+2. Universe content — stories, activities, new arrivals scoped to her universe
+
 **Current scenes:**
 - Welcome — the doll greets the child in her own voice
 - Story — the doll's story, narrated page by page
 - Play — an interactive story choice moment
-- Meet Friends — other dolls in the same universe
+- Meet Friends — universe discovery portal (new arrivals, stories, activities)
 
 **Current capabilities:**
 - Ambient animations (universe-aware particles, breathing, entrance effects)
@@ -236,6 +304,7 @@ This is the portal for everything the child experiences digitally.
 - Expanded story types (branching)
 - Seasonal and event-based content variants
 - Animated short videos
+- Universe discovery — new characters and content surfaced automatically
 
 The public experience is fully separate from the admin and production system.
 It never depends on pipeline state, readiness, or commerce logic at render time.
@@ -256,18 +325,28 @@ where every sale is personal and every doll is one of a kind.
 **Future:** An online shop will be built. Direct conversation remains
 as a customer service and relationship layer. The shop enables scale.
 
+### The Instagram strategy principle
+Instagram announces universe growth — not product sales.
+
+When a new doll arrives in Farm World, Instagram tells the Farm World story.
+When a new story drops, Instagram gives a glimpse of the world.
+When a seasonal moment arrives, Instagram celebrates it.
+
+Parents who follow Maille et Merveille are following a living universe.
+The purchase impulse comes from belonging to that universe —
+not from being sold to.
+
 ### Social media content strategy (to be developed)
 The social media content strategy is not yet fully defined.
 It will be built as a dedicated planning phase once the production system
-is fully operational. The content generated by digital production
-(captions, hooks, social content) feeds into this strategy.
+is fully operational.
 
 **What is known:**
 - Instagram is the primary platform (to start)
 - Content must reflect the brand voice — never commercial, always storytelling
 - The public doll page is the primary conversion asset
-- Content types will include doll reveals, universe mood content,
-  story previews, behind-the-scenes making, and seasonal content
+- Universe announcements are the primary content type
+- Content generated by digital production feeds into this strategy
 
 ---
 
@@ -298,9 +377,11 @@ The system has been refactored into a clean feature-based modular architecture:
 
 ### What is not yet built
 - Universe layer (data model, admin UI, universe management)
+- Content access scope model (universe / character match / assigned / exclusive)
 - Character brief extended fields in admin UI
 - Story builder (template system, content builder, publishing lifecycle)
 - Activity builder
+- Universe discovery on public page (new arrivals, new content surfacing)
 - Physical production tracking (Layer 2)
 - Creative lab tools (Layer 1)
 - Social media management layer
@@ -339,6 +420,9 @@ The system exists to serve one goal:
 **transform a handmade doll into a child's most meaningful companion —
 at the scale required to build a real business.**
 
+The doll is the passport. The universe is the destination.
+The universe grows. The passport never expires.
+
 Every feature, every decision, every build priority should be measured
 against this goal.
 
@@ -352,6 +436,7 @@ One layer at a time. In the right order.
 
 ---
 
-*Document owner: Founder — Maille et Merveille*  
-*Last updated: Session with Claude — March 2026*  
+*Document owner: Founder — Maille et Merveille*
+*Version 1.1 — Living universe model added*
+*Last updated: Session with Claude — March 2026*
 *Next review: When first collaborator is onboarded*
