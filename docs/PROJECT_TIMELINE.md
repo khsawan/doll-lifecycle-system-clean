@@ -1,7 +1,7 @@
 # PROJECT TIMELINE
 ## Maille et Merveille — Doll Lifecycle System
 
-**Last updated:** March 2026
+**Last updated:** 31 March 2026
 **How to use:** Update status and notes as each phase completes.
 **Statuses:** ✅ Done | 🔄 In Progress | 📋 Planned | ⏸ Blocked
 
@@ -11,10 +11,10 @@
 
 | Status | Count |
 |---|---|
-| ✅ Done | 9 |
-| 🔄 In Progress | 0 |
-| 📋 Planned | 14 |
-| ⏸ Blocked | 2 |
+| ✅ Done | 11 |
+| 🔄 In Progress | 1 |
+| 📋 Planned | 18 |
+| ⏸ Blocked | 3 |
 
 ---
 
