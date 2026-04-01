@@ -50,6 +50,13 @@ export function buildIdentityEditorState(doll, activeGeneratedV1Content) {
     notable_features: doll.notable_features || "",
     expression_feel: doll.expression_feel || "",
     character_world: doll.character_world || "",
+    emotional_spark: doll.emotional_spark || "",
+    emotional_essence: doll.emotional_essence || "",
+    temperament: doll.temperament || "",
+    emotional_role: doll.emotional_role || "",
+    small_tenderness: doll.small_tenderness || "",
+    signature_trait: doll.signature_trait || "",
+    sample_voice_line: doll.sample_voice_line || "",
   };
 
   const hasSavedSocialSnapshot = Boolean(

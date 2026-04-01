@@ -52,6 +52,13 @@ export function useAdminIdentityEditor({
       notable_features: identity.notable_features,
       expression_feel: identity.expression_feel,
       character_world: identity.character_world,
+      emotional_spark: identity.emotional_spark,
+      emotional_essence: identity.emotional_essence,
+      temperament: identity.temperament,
+      emotional_role: identity.emotional_role,
+      small_tenderness: identity.small_tenderness,
+      signature_trait: identity.signature_trait,
+      sample_voice_line: identity.sample_voice_line,
       status: selected.status === "new" ? "identity" : selected.status,
     };
 

@@ -222,6 +222,96 @@ export function AdminCharacterPanel({
           />
         </div>
 
+        <div style={briefSectionStyle}>
+          <div style={briefSectionLabelStyle}>Character Brief</div>
+
+          <div style={identityGridStyle}>
+            <div>
+              <label style={styles.labelStyle}>Emotional Spark</label>
+              <div style={fieldGuidanceStyle}>What lights her up? What makes her come alive?</div>
+              <input
+                value={identity.emotional_spark}
+                onChange={(event) =>
+                  setIdentity({ ...identity, emotional_spark: event.target.value })
+                }
+                style={styles.inputStyle}
+              />
+            </div>
+
+            <div>
+              <label style={styles.labelStyle}>Emotional Essence</label>
+              <div style={fieldGuidanceStyle}>What feeling does she leave behind in a room?</div>
+              <input
+                value={identity.emotional_essence}
+                onChange={(event) =>
+                  setIdentity({ ...identity, emotional_essence: event.target.value })
+                }
+                style={styles.inputStyle}
+              />
+            </div>
+
+            <div>
+              <label style={styles.labelStyle}>Temperament</label>
+              <div style={fieldGuidanceStyle}>How does she move through the world — fast, slow, careful, bold?</div>
+              <input
+                value={identity.temperament}
+                onChange={(event) =>
+                  setIdentity({ ...identity, temperament: event.target.value })
+                }
+                style={styles.inputStyle}
+              />
+            </div>
+
+            <div>
+              <label style={styles.labelStyle}>Emotional Role</label>
+              <div style={fieldGuidanceStyle}>What role does she play in a child's emotional life?</div>
+              <input
+                value={identity.emotional_role}
+                onChange={(event) =>
+                  setIdentity({ ...identity, emotional_role: event.target.value })
+                }
+                style={styles.inputStyle}
+              />
+            </div>
+
+            <div>
+              <label style={styles.labelStyle}>Small Tenderness</label>
+              <div style={fieldGuidanceStyle}>One small, specific, tender detail only she would do.</div>
+              <input
+                value={identity.small_tenderness}
+                onChange={(event) =>
+                  setIdentity({ ...identity, small_tenderness: event.target.value })
+                }
+                style={styles.inputStyle}
+              />
+            </div>
+
+            <div>
+              <label style={styles.labelStyle}>Signature Trait</label>
+              <div style={fieldGuidanceStyle}>The one thing anyone would say about her first.</div>
+              <input
+                value={identity.signature_trait}
+                onChange={(event) =>
+                  setIdentity({ ...identity, signature_trait: event.target.value })
+                }
+                style={styles.inputStyle}
+              />
+            </div>
+          </div>
+
+          <div style={textSectionStyle}>
+            <label style={styles.labelStyle}>Sample Voice Line</label>
+            <div style={fieldGuidanceStyle}>One sentence she might actually say, in her own voice.</div>
+            <textarea
+              value={identity.sample_voice_line}
+              onChange={(event) =>
+                setIdentity({ ...identity, sample_voice_line: event.target.value })
+              }
+              style={textareaStyle(styles.inputStyle)}
+            />
+          </div>
+        </div>
+
         <div style={saveRowStyle}>
           <button type="button" onClick={onSaveIdentity} style={styles.primaryButton}>
             Save Identity
@@ -387,4 +477,26 @@ const universeErrorStyle = {
   background: "#fef2f2",
   border: "1px solid #fecaca",
   color: "#991b1b",
+};
+
+const briefSectionStyle = {
+  borderTop: "1px solid #e2e8f0",
+  paddingTop: 20,
+  display: "grid",
+  gap: 16,
+};
+
+const briefSectionLabelStyle = {
+  fontSize: 13,
+  textTransform: "uppercase",
+  letterSpacing: "0.12em",
+  color: "#94a3b8",
+  fontWeight: 700,
+};
+
+const fieldGuidanceStyle = {
+  fontSize: 12,
+  color: "#94a3b8",
+  marginBottom: 6,
+  lineHeight: 1.4,
 };

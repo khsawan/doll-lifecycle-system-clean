@@ -26,6 +26,13 @@ const EMPTY_IDENTITY_STATE = {
   notable_features: "",
   expression_feel: "",
   character_world: "",
+  emotional_spark: "",
+  emotional_essence: "",
+  temperament: "",
+  emotional_role: "",
+  small_tenderness: "",
+  signature_trait: "",
+  sample_voice_line: "",
   universe_id: null,
   doll_id: null,
 };

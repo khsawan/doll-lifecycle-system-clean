@@ -59,6 +59,31 @@ export function buildAdminAIGenerationPayload({
       identity.notable_features,
       selected?.notable_features || ""
     ),
+    emotional_spark: readTrimmedString(
+      identity.emotional_spark,
+      selected?.emotional_spark || ""
+    ),
+    emotional_essence: readTrimmedString(
+      identity.emotional_essence,
+      selected?.emotional_essence || ""
+    ),
+    temperament: readTrimmedString(identity.temperament, selected?.temperament || ""),
+    emotional_role: readTrimmedString(
+      identity.emotional_role,
+      selected?.emotional_role || ""
+    ),
+    small_tenderness: readTrimmedString(
+      identity.small_tenderness,
+      selected?.small_tenderness || ""
+    ),
+    signature_trait: readTrimmedString(
+      identity.signature_trait,
+      selected?.signature_trait || ""
+    ),
+    sample_voice_line: readTrimmedString(
+      identity.sample_voice_line,
+      selected?.sample_voice_line || ""
+    ),
     universe,
   };
 }
