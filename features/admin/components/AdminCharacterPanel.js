@@ -97,6 +97,21 @@ function useUniverseSection(identity) {
   };
 }
 
+function CharCounter({ value, max, noColor = false }) {
+  const len = (value || "").length;
+  const ratio = len / max;
+  let color = "#94a3b8";
+  if (!noColor) {
+    if (len >= max) color = "#dc2626";
+    else if (ratio >= 0.8) color = "#d97706";
+  }
+  return (
+    <div style={{ ...charCounterStyle, color }}>
+      {len} / {max}
+    </div>
+  );
+}
+
 export function AdminCharacterPanel({
   isEditable,
   identity,
@@ -122,11 +137,13 @@ export function AdminCharacterPanel({
             <div style={fieldGuidanceStyle}>What is she called? This is the name her world knows her by.</div>
             <input
               value={identity.name}
+              maxLength={50}
               onChange={(event) =>
                 setIdentity({ ...identity, name: event.target.value })
               }
               style={styles.inputStyle}
             />
+            <CharCounter value={identity.name} max={50} />
           </div>
 
           <div>
@@ -134,11 +151,13 @@ export function AdminCharacterPanel({
             <div style={fieldGuidanceStyle}>How would someone describe her in three words? What stays true about her no matter where she is?</div>
             <input
               value={identity.personality_traits}
+              maxLength={150}
               onChange={(event) =>
                 setIdentity({ ...identity, personality_traits: event.target.value })
               }
               style={styles.inputStyle}
             />
+            <CharCounter value={identity.personality_traits} max={150} />
           </div>
 
           <div>
@@ -146,11 +165,13 @@ export function AdminCharacterPanel({
             <div style={fieldGuidanceStyle}>What would a child notice first? A detail, a texture, something that makes her unmistakably her.</div>
             <input
               value={identity.notable_features}
+              maxLength={150}
               onChange={(event) =>
                 setIdentity({ ...identity, notable_features: event.target.value })
               }
               style={styles.inputStyle}
             />
+            <CharCounter value={identity.notable_features} max={150} />
           </div>
 
           <div>
@@ -158,11 +179,13 @@ export function AdminCharacterPanel({
             <div style={fieldGuidanceStyle}>What colours live in her world? Think of her clothes, her surroundings, the light around her.</div>
             <input
               value={identity.color_palette}
+              maxLength={120}
               onChange={(event) =>
                 setIdentity({ ...identity, color_palette: event.target.value })
               }
               style={styles.inputStyle}
             />
+            <CharCounter value={identity.color_palette} max={120} />
           </div>
         </div>
 
@@ -171,11 +194,13 @@ export function AdminCharacterPanel({
           <div style={fieldGuidanceStyle}>Where does she live and belong? Describe her environment in a sentence — the sights, the feeling, the pace of her world.</div>
           <textarea
             value={identity.character_world}
+            maxLength={400}
             onChange={(event) =>
               setIdentity({ ...identity, character_world: event.target.value })
             }
             style={textareaStyle(styles.inputStyle)}
           />
+          <CharCounter value={identity.character_world} max={400} noColor />
         </div>
 
         <div style={briefSectionStyle}>
@@ -187,11 +212,13 @@ export function AdminCharacterPanel({
               <div style={fieldGuidanceStyle}>What lights her up? What makes her come alive?</div>
               <input
                 value={identity.emotional_spark}
+                maxLength={80}
                 onChange={(event) =>
                   setIdentity({ ...identity, emotional_spark: event.target.value })
                 }
                 style={styles.inputStyle}
               />
+              <CharCounter value={identity.emotional_spark} max={80} />
             </div>
 
             <div>
@@ -199,11 +226,13 @@ export function AdminCharacterPanel({
               <div style={fieldGuidanceStyle}>What feeling does she leave behind in a room?</div>
               <input
                 value={identity.emotional_essence}
+                maxLength={80}
                 onChange={(event) =>
                   setIdentity({ ...identity, emotional_essence: event.target.value })
                 }
                 style={styles.inputStyle}
               />
+              <CharCounter value={identity.emotional_essence} max={80} />
             </div>
 
             <div>
@@ -211,11 +240,13 @@ export function AdminCharacterPanel({
               <div style={fieldGuidanceStyle}>How does she move through the world — fast, slow, careful, bold?</div>
               <input
                 value={identity.temperament}
+                maxLength={80}
                 onChange={(event) =>
                   setIdentity({ ...identity, temperament: event.target.value })
                 }
                 style={styles.inputStyle}
               />
+              <CharCounter value={identity.temperament} max={80} />
             </div>
 
             <div>
@@ -223,11 +254,13 @@ export function AdminCharacterPanel({
               <div style={fieldGuidanceStyle}>What role does she play in a child's emotional life?</div>
               <input
                 value={identity.emotional_role}
+                maxLength={120}
                 onChange={(event) =>
                   setIdentity({ ...identity, emotional_role: event.target.value })
                 }
                 style={styles.inputStyle}
               />
+              <CharCounter value={identity.emotional_role} max={120} />
             </div>
 
             <div>
@@ -235,11 +268,13 @@ export function AdminCharacterPanel({
               <div style={fieldGuidanceStyle}>One small, specific, tender detail only she would do.</div>
               <input
                 value={identity.small_tenderness}
+                maxLength={150}
                 onChange={(event) =>
                   setIdentity({ ...identity, small_tenderness: event.target.value })
                 }
                 style={styles.inputStyle}
               />
+              <CharCounter value={identity.small_tenderness} max={150} />
             </div>
 
             <div>
@@ -247,11 +282,13 @@ export function AdminCharacterPanel({
               <div style={fieldGuidanceStyle}>The one thing anyone would say about her first.</div>
               <input
                 value={identity.signature_trait}
+                maxLength={80}
                 onChange={(event) =>
                   setIdentity({ ...identity, signature_trait: event.target.value })
                 }
                 style={styles.inputStyle}
               />
+              <CharCounter value={identity.signature_trait} max={80} />
             </div>
           </div>
 
@@ -260,11 +297,13 @@ export function AdminCharacterPanel({
             <div style={fieldGuidanceStyle}>One sentence she might actually say, in her own voice.</div>
             <textarea
               value={identity.sample_voice_line}
+              maxLength={200}
               onChange={(event) =>
                 setIdentity({ ...identity, sample_voice_line: event.target.value })
               }
               style={textareaStyle(styles.inputStyle)}
             />
+            <CharCounter value={identity.sample_voice_line} max={200} noColor />
           </div>
         </div>
 
@@ -455,4 +494,11 @@ const fieldGuidanceStyle = {
   color: "#94a3b8",
   marginBottom: 6,
   lineHeight: 1.4,
+};
+
+const charCounterStyle = {
+  fontSize: 11,
+  textAlign: "right",
+  marginTop: 4,
+  color: "#94a3b8",
 };
