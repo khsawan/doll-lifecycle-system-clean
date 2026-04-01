@@ -119,104 +119,60 @@ export function AdminCharacterPanel({
         <div style={identityGridStyle}>
           <div>
             <label style={styles.labelStyle}>Name</label>
+            <div style={fieldGuidanceStyle}>What is she called? This is the name her world knows her by.</div>
             <input
               value={identity.name}
               onChange={(event) =>
-                setIdentity({
-                  ...identity,
-                  name: event.target.value,
-                })
+                setIdentity({ ...identity, name: event.target.value })
               }
               style={styles.inputStyle}
             />
           </div>
 
           <div>
-            <label style={styles.labelStyle}>Theme</label>
-            <select
-              value={identity.theme_name}
-              onChange={(event) =>
-                setIdentity({
-                  ...identity,
-                  theme_name: event.target.value,
-                })
-              }
-              style={styles.inputStyle}
-            >
-              {themes.map((theme) => (
-                <option key={theme} value={theme}>
-                  {theme}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label style={styles.labelStyle}>Personality traits</label>
+            <label style={styles.labelStyle}>Personality</label>
+            <div style={fieldGuidanceStyle}>How would someone describe her in three words? What stays true about her no matter where she is?</div>
             <input
               value={identity.personality_traits}
               onChange={(event) =>
-                setIdentity({
-                  ...identity,
-                  personality_traits: event.target.value,
-                })
+                setIdentity({ ...identity, personality_traits: event.target.value })
               }
               style={styles.inputStyle}
             />
           </div>
 
           <div>
-            <label style={styles.labelStyle}>Emotional hook</label>
+            <label style={styles.labelStyle}>Notable Features</label>
+            <div style={fieldGuidanceStyle}>What would a child notice first? A detail, a texture, something that makes her unmistakably her.</div>
             <input
-              value={identity.emotional_hook}
+              value={identity.notable_features}
               onChange={(event) =>
-                setIdentity({
-                  ...identity,
-                  emotional_hook: event.target.value,
-                })
+                setIdentity({ ...identity, notable_features: event.target.value })
               }
               style={styles.inputStyle}
             />
           </div>
 
           <div>
-            <label style={styles.labelStyle}>Expression Feel</label>
+            <label style={styles.labelStyle}>Colour Palette</label>
+            <div style={fieldGuidanceStyle}>What colours live in her world? Think of her clothes, her surroundings, the light around her.</div>
             <input
-              value={identity.expression_feel}
+              value={identity.color_palette}
               onChange={(event) =>
-                setIdentity({
-                  ...identity,
-                  expression_feel: event.target.value,
-                })
+                setIdentity({ ...identity, color_palette: event.target.value })
               }
               style={styles.inputStyle}
             />
           </div>
-        </div>
-
-        <div style={textSectionStyle}>
-          <label style={styles.labelStyle}>Short intro</label>
-          <textarea
-            value={identity.short_intro}
-            onChange={(event) =>
-              setIdentity({
-                ...identity,
-                short_intro: event.target.value,
-              })
-            }
-            style={textareaStyle(styles.inputStyle)}
-          />
         </div>
 
         <div style={textSectionStyle}>
           <label style={styles.labelStyle}>Character World</label>
+          <div style={fieldGuidanceStyle}>Where does she live and belong? Describe her environment in a sentence — the sights, the feeling, the pace of her world.</div>
           <textarea
             value={identity.character_world}
             onChange={(event) =>
-              setIdentity({
-                ...identity,
-                character_world: event.target.value,
-              })
+              setIdentity({ ...identity, character_world: event.target.value })
             }
             style={textareaStyle(styles.inputStyle)}
           />
