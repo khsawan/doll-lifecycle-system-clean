@@ -106,7 +106,7 @@ function CharCounter({ value, max, noColor = false }) {
     else if (ratio >= 0.8) color = "#d97706";
   }
   return (
-    <div style={{ ...charCounterStyle, color }}>
+    <div style={{ fontSize: 11, textAlign: "right", marginTop: 4, color }}>
       {len} / {max}
     </div>
   );

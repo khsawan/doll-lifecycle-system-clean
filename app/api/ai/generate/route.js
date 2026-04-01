@@ -121,6 +121,7 @@ function unauthorizedResponse(shouldClearCookie) {
 }
 
 export async function POST(request) {
+  console.error("Generate route hit");
   try {
     const cookieStore = await cookies();
     const token = cookieStore.get(ADMIN_SESSION_COOKIE_NAME)?.value || "";
@@ -155,6 +156,7 @@ export async function POST(request) {
 
     if (result?.ok === false) {
       const status = result.retryable ? 500 : 400;
+      console.error("AI generation result failure:", JSON.stringify(result));
 
       return NextResponse.json(
         {
@@ -167,6 +169,7 @@ export async function POST(request) {
 
     return NextResponse.json(buildLegacyAIGenerationBody(result));
   } catch (error) {
+    console.error("Generate error:", error?.message, error?.stack);
     const message = error instanceof Error ? error.message : "Failed to generate AI content.";
     const status = /missing|invalid|unsupported/i.test(message) ? 400 : 500;
     const failure = normalizeErrorResult(error, {
