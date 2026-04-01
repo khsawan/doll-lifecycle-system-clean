@@ -495,6 +495,20 @@ The admin content management layer now tracks three management statuses for the 
 - Universe assignment is optional — existing dolls without assignment continue to work correctly
 - This phase does not change pipeline_state, commerce_status, QR logic, or AI prompt injection (Phase U2)
 
+### Phase U2 — Universe AI Injection (Complete)
+
+- buildAdminAIGenerationPayload in features/admin/domain/generation.js
+  now passes real universe data into the AI payload when available
+- Universe object includes: name, description, emotional_core,
+  tone_rules from the Supabase universes record
+- UNIVERSE_BLOCK in lib/ai/guidelines.js now injects:
+  emotional_core and tone_rules.register when present
+- Backward compatible — dolls without universe_id continue
+  to use theme_name fallback behavior
+- Every AI generation call (story, content pack, social, V1)
+  now reflects real universe tone and rules when a doll
+  has a universe assigned
+
 ## Future Phases
 
 - Phase 10: Universe layer for higher-level world and theme structures across multiple dolls.

@@ -9,10 +9,17 @@ export function buildAdminAIGenerationPayload({
   tone = "Gentle",
 } = {}) {
   const liveThemeName = readTrimmedString(identity.theme_name, selected?.theme_name || "");
+  const resolvedUniverseId =
+    readTrimmedString(identity.universe_id) || readTrimmedString(selected?.universe_id);
   const universe =
     selected?.universe && typeof selected.universe === "object"
-      ? selected.universe
-      : {
+      ? // Priority 1: full universe object already resolved — use it directly
+        selected.universe
+      : resolvedUniverseId
+      ? // Priority 2: universe_id present but not yet resolved — pass id for generation layer
+        { universe_id: resolvedUniverseId }
+      : // Priority 3: no universe_id — fall back to theme and doll fields
+        {
           name:
             readTrimmedString(selected?.universe_name) ||
             (liveThemeName && liveThemeName !== "Unassigned" ? liveThemeName : ""),
