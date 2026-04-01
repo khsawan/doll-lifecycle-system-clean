@@ -14,6 +14,7 @@ import { saveAdminDollPatchViaApi } from "../services/dollApi";
 export function useAdminIdentityEditor({
   selected,
   identity,
+  universeRecord = null,
   slugLocked,
   setIdentity,
   setDolls,
@@ -98,7 +99,7 @@ export function useAdminIdentityEditor({
     try {
       const { primaryVariation, variations } = await generateAdminSocialContent(
         fetcher,
-        buildAdminAIGenerationPayload({ selected, identity })
+        buildAdminAIGenerationPayload({ selected, identity, universeRecord })
       );
 
       setSocialVariations(variations);

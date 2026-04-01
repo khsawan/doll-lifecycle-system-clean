@@ -14,6 +14,7 @@ import { saveAdminDollPatchViaApi } from "../services/dollApi";
 export function useAdminManagedContent({
   selected,
   identity,
+  universeRecord = null,
   selectedContentManagement,
   selectedGeneratedV1Content,
   contentPreviewHref,
@@ -283,6 +284,7 @@ export function useAdminManagedContent({
     const generationPayload = buildAdminManagedContentGenerationPayload({
       selected,
       identity,
+      universeRecord,
     });
     const fallbackGeneratedContent = generateV1ContentFromIdentity({
       name: generationPayload.name,

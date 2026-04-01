@@ -13,6 +13,7 @@ export function useAdminStoryContentController({
   const storyEditorState = useAdminStoryEditor({
     selected: catalogState.selected,
     identity: detailState.identity,
+    universeRecord: detailState.universeRecord,
     story: detailState.story,
     setStoryTone,
     setStory: detailState.setStory,

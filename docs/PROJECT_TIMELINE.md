@@ -39,7 +39,7 @@
 | Phase | Status | Weeks | Notes |
 |---|---|---|---|
 | Phase B quality validation | ⏸ Blocked | TBD | Needs funded Anthropic API key |
-| Phase U1 — universe data model | ✅ Done | W6 | Universe table, admin UI, doll assignment complete |
+| Phase U1 — universe data model | ✅ Done | W6 | Universe table, seed data, admin UI, doll assignment, AI injection complete |
 | Phase U2 — universe AI injection | ✅ Done | W6 | Real universe data injected into all AI generation prompts |
 | Phase CB1 — character brief fields | 📋 Planned | W7 | Extended fields in admin + Supabase |
 | Phase CB2 — character brief generator | 📋 Planned | W7 | New AI task: character_brief |

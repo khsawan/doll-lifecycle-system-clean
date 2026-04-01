@@ -11,6 +11,7 @@ export function useAdminContentPackContentController({
   const contentPackEditorState = useAdminContentPackEditor({
     selected: catalogState.selected,
     identity: detailState.identity,
+    universeRecord: detailState.universeRecord,
     contentPack: detailState.contentPack,
     setContentPack: detailState.setContentPack,
     setDolls: catalogState.setDolls,

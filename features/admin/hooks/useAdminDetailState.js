@@ -9,6 +9,7 @@ import {
 } from "../domain/content";
 import { buildAdminDollDetailState } from "../domain/detailState";
 import { fetchAdminDollDetailResources } from "../services/detailApi";
+import { fetchAdminUniverseDetail } from "../services/universeApi";
 
 const EMPTY_IDENTITY_STATE = {
   name: "",
@@ -47,6 +48,7 @@ export function useAdminDetailState({
   const [playActivity, setPlayActivity] = useState(emptyPlayActivityState);
   const [qrDataUrl, setQrDataUrl] = useState("");
   const [commerceStatus, setCommerceStatus] = useState("draft");
+  const [universeRecord, setUniverseRecord] = useState(null);
   const dollsRef = useRef(dolls);
   const generatedContentRef = useRef(generatedV1ContentByDoll);
 
@@ -67,6 +69,7 @@ export function useAdminDetailState({
 
     async function loadDetails() {
       setError("");
+      setUniverseRecord(null);
 
       try {
         if (!fetcher) {
@@ -82,6 +85,22 @@ export function useAdminDetailState({
         if (isCancelled) {
           return;
         }
+
+        let resolvedUniverseRecord = null;
+        if (doll?.universe_id) {
+          try {
+            const universeData = await fetchAdminUniverseDetail(fetcher, doll.universe_id);
+            resolvedUniverseRecord = universeData.universe || null;
+          } catch {
+            // Universe fetch failure is non-fatal; generation falls back to existing behavior
+          }
+        }
+
+        if (isCancelled) {
+          return;
+        }
+
+        setUniverseRecord(resolvedUniverseRecord);
 
         const detailState = buildAdminDollDetailState({
           doll,
@@ -144,5 +163,6 @@ export function useAdminDetailState({
     setQrDataUrl,
     commerceStatus,
     setCommerceStatus,
+    universeRecord,
   };
 }

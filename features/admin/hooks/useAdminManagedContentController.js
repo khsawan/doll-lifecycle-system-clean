@@ -18,6 +18,7 @@ export function useAdminManagedContentController({
     managedContentState: useAdminManagedContent({
       selected: catalogState.selected,
       identity: detailState.identity,
+      universeRecord: detailState.universeRecord,
       selectedContentManagement:
         managedContentStoreState.selectedContentManagement,
       selectedGeneratedV1Content:

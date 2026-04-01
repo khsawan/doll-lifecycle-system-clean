@@ -12,6 +12,7 @@ import { saveAdminContentPackViaApi } from "../services/detailApi";
 export function useAdminContentPackEditor({
   selected,
   identity,
+  universeRecord = null,
   contentPack,
   setContentPack,
   setDolls,
@@ -51,7 +52,7 @@ export function useAdminContentPackEditor({
     try {
       const { primaryVariation, variations } = await generateAdminContentPack(
         fetcher,
-        buildAdminAIGenerationPayload({ selected, identity })
+        buildAdminAIGenerationPayload({ selected, identity, universeRecord })
       );
 
       setContentPackVariations(variations);

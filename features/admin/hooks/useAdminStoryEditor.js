@@ -13,6 +13,7 @@ import { saveAdminStoryViaApi } from "../services/detailApi";
 export function useAdminStoryEditor({
   selected,
   identity,
+  universeRecord = null,
   story,
   setStoryTone,
   setStory,
@@ -47,7 +48,7 @@ export function useAdminStoryEditor({
     setStoryGenerating(true);
 
     const pack = buildStoryPack({ ...selected, ...identity }, tone);
-    const payload = buildAdminAIGenerationPayload({ selected, identity, tone });
+    const payload = buildAdminAIGenerationPayload({ selected, identity, tone, universeRecord });
 
     try {
       const { primaryVariation, variations } = await generateAdminStory(fetcher, payload);

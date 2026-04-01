@@ -11,6 +11,7 @@ export function useAdminSocialContentController({
   const identityEditorState = useAdminIdentityEditor({
     selected: catalogState.selected,
     identity: detailState.identity,
+    universeRecord: detailState.universeRecord,
     slugLocked: publicLinkState.slugLocked,
     setIdentity: detailState.setIdentity,
     setDolls: catalogState.setDolls,

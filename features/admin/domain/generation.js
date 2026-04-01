@@ -7,12 +7,16 @@ export function buildAdminAIGenerationPayload({
   selected,
   identity = {},
   tone = "Gentle",
+  universeRecord = null,
 } = {}) {
   const liveThemeName = readTrimmedString(identity.theme_name, selected?.theme_name || "");
   const resolvedUniverseId =
     readTrimmedString(identity.universe_id) || readTrimmedString(selected?.universe_id);
   const universe =
-    selected?.universe && typeof selected.universe === "object"
+    universeRecord && typeof universeRecord === "object"
+      ? // Priority 0: explicit universe record passed in — use it directly
+        universeRecord
+      : selected?.universe && typeof selected.universe === "object"
       ? // Priority 1: full universe object already resolved — use it directly
         selected.universe
       : resolvedUniverseId
@@ -62,11 +66,13 @@ export function buildAdminAIGenerationPayload({
 export function buildAdminManagedContentGenerationPayload({
   selected,
   identity = {},
+  universeRecord = null,
 } = {}) {
   const basePayload = buildAdminAIGenerationPayload({
     selected,
     identity,
     tone: "Gentle",
+    universeRecord,
   });
   const themeName =
     typeof basePayload.theme_name === "string" ? basePayload.theme_name.trim() : "";
