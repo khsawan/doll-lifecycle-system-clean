@@ -1,0 +1,16 @@
+
+> doll-lifecycle-system@0.1.0 dev
+> next dev -p 40124
+
+   ▲ Next.js 15.3.8
+   - Local:        http://localhost:40124
+   - Network:      http://192.168.20.250:40124
+   - Environments: .env.local
+
+ ✓ Starting...
+ ✓ Ready in 1703ms
+ ○ Compiling /api/admin/session ...
+ ✓ Compiled /api/admin/session in 732ms (373 modules)
+ POST /api/admin/session 200 in 868ms
+ ✓ Compiled /api/admin/catalog in 171ms (420 modules)
+ GET /api/admin/catalog 200 in 846ms

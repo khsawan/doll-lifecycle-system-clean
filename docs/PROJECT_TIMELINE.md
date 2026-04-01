@@ -1,7 +1,7 @@
 # PROJECT TIMELINE
 ## Maille et Merveille — Doll Lifecycle System
 
-**Last updated:** 31 March 2026
+**Last updated:** 1 April 2026
 **How to use:** Update status and notes as each phase completes.
 **Statuses:** ✅ Done | 🔄 In Progress | 📋 Planned | ⏸ Blocked
 
@@ -11,9 +11,9 @@
 
 | Status | Count |
 |---|---|
-| ✅ Done | 11 |
+| ✅ Done | 12 |
 | 🔄 In Progress | 1 |
-| 📋 Planned | 18 |
+| 📋 Planned | 17 |
 | ⏸ Blocked | 3 |
 
 ---
@@ -39,7 +39,7 @@
 | Phase | Status | Weeks | Notes |
 |---|---|---|---|
 | Phase B quality validation | ⏸ Blocked | TBD | Needs funded Anthropic API key |
-| Phase U1 — universe data model | 📋 Planned | W6 | Supabase schema + admin UI + doll assignment |
+| Phase U1 — universe data model | ✅ Done | W6 | Universe table, admin UI, doll assignment complete |
 | Phase U2 — universe AI injection | 📋 Planned | W6 | Real universe data into prompt blocks |
 | Phase CB1 — character brief fields | 📋 Planned | W7 | Extended fields in admin + Supabase |
 | Phase CB2 — character brief generator | 📋 Planned | W7 | New AI task: character_brief |

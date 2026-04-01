@@ -25,6 +25,8 @@ const EMPTY_IDENTITY_STATE = {
   notable_features: "",
   expression_feel: "",
   character_world: "",
+  universe_id: null,
+  doll_id: null,
 };
 
 export function useAdminDetailState({
@@ -91,7 +93,11 @@ export function useAdminDetailState({
 
         setCommerceStatus(detailState.commerceStatus);
         if (detailState.identity) {
-          setIdentity(detailState.identity);
+          setIdentity({
+            ...detailState.identity,
+            universe_id: doll?.universe_id || null,
+            doll_id: doll?.id || null,
+          });
         }
         setSavedSocialSnapshot(detailState.savedSocialSnapshot);
         setQrDataUrl(detailState.qrDataUrl);

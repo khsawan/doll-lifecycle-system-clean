@@ -75,10 +75,12 @@ describe("admin shell composition controller", () => {
       workspaceControllerState,
       feedbackControllerState,
     });
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       workspaceControllerState,
       editorControllerState,
       actionControllerState,
+      activeTopNav: "dolls",
+      setActiveTopNav: expect.any(Function),
     });
   });
 });

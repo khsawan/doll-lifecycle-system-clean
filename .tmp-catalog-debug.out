@@ -1,0 +1,10 @@
+
+> doll-lifecycle-system@0.1.0 start
+> next start -p 40123
+
+   ▲ Next.js 15.3.8
+   - Local:        http://localhost:40123
+   - Network:      http://192.168.20.250:40123
+
+ ✓ Starting...
+ ✓ Ready in 380ms

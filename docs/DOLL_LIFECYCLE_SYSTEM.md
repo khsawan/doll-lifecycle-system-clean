@@ -482,6 +482,19 @@ The admin content management layer now tracks three management statuses for the 
 - Interaction feedback (hover and click states) improves operator clarity and usability
 - The variation panels are visually secondary to the main editor to preserve focus on final content
 
+### Phase U1 — Universe Data Model (Complete)
+
+- universes table added to Supabase with fields:
+  id, name, slug, description, emotional_core,
+  tone_rules (JSONB), visual_theme (JSONB), audio_urls (JSONB),
+  status, created_at, updated_at
+- Three active universes seeded: Farm World, Little Dreamers, Together World
+- universe_id foreign key added to dolls table
+- Universe management admin UI added (list, create, edit)
+- Doll universe assignment added to Character stage panel
+- Universe assignment is optional — existing dolls without assignment continue to work correctly
+- This phase does not change pipeline_state, commerce_status, QR logic, or AI prompt injection (Phase U2)
+
 ## Future Phases
 
 - Phase 10: Universe layer for higher-level world and theme structures across multiple dolls.

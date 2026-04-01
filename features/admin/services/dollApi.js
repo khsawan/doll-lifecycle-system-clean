@@ -33,6 +33,12 @@ export async function saveAdminDollPatchViaApi(fetcher, dollId, patch) {
   };
 }
 
+export async function saveAdminDollUniverseAssignmentViaApi(fetcher, dollId, universeId) {
+  return saveAdminDollPatchViaApi(fetcher, dollId, {
+    universe_id: universeId || null,
+  });
+}
+
 export async function deleteAdminDollPermanentlyViaApi(
   fetcher,
   dollId,

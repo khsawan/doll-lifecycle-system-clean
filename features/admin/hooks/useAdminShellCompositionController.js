@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useAdminEditorActionShellController } from "./useAdminEditorActionShellController";
 import { useAdminWorkspaceShellController } from "./useAdminWorkspaceShellController";
 
@@ -8,6 +9,8 @@ export function useAdminShellCompositionController({
   isAuthenticated,
   feedbackControllerState,
 }) {
+  const [activeTopNav, setActiveTopNav] = useState("dolls");
+
   const { workspaceControllerState } = useAdminWorkspaceShellController({
     authChecked,
     isAuthenticated,
@@ -23,5 +26,7 @@ export function useAdminShellCompositionController({
     workspaceControllerState,
     editorControllerState,
     actionControllerState,
+    activeTopNav,
+    setActiveTopNav,
   };
 }

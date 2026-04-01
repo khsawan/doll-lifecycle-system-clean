@@ -1,0 +1,3 @@
+[ai-service] listening on http://127.0.0.1:4110
+AI_PROVIDER: google
+HAS GOOGLE KEY: true

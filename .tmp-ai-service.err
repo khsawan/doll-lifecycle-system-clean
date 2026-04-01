@@ -1,0 +1,4 @@
+(node:10432) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/WIN%2010/doll-lifecycle-system/lib/ai/interface/requests.js is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to C:\Users\WIN 10\doll-lifecycle-system\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
