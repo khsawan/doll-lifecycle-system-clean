@@ -102,12 +102,12 @@ export async function GET(request, { params }) {
         client.from("universes").select("*").eq("id", universeId).single(),
         client
           .from("dolls")
-          .select("id, name, theme_name, slug, hero_image_url, universe_id")
+          .select("id, name, theme_name, slug, image_url, universe_id")
           .eq("universe_id", universeId)
           .order("name", { ascending: true }),
         client
           .from("dolls")
-          .select("id, name, theme_name, slug, hero_image_url, universe_id")
+          .select("id, name, theme_name, slug, image_url, universe_id")
           .is("universe_id", null)
           .order("name", { ascending: true }),
       ]);
