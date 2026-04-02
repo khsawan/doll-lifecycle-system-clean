@@ -1,34 +1,24 @@
-function buildStoryRows(dollId, story = {}) {
-  return [
-    {
-      doll_id: dollId,
-      type: "teaser",
-      title: "Card teaser",
-      content: story.teaser,
-      sequence_order: 1,
-    },
-    {
-      doll_id: dollId,
-      type: "main",
-      title: "Main story",
-      content: story.mainStory,
-      sequence_order: 2,
-    },
-    {
-      doll_id: dollId,
-      type: "mini",
-      title: "Mini story 1",
-      content: story.mini1,
-      sequence_order: 3,
-    },
-    {
-      doll_id: dollId,
-      type: "mini",
-      title: "Mini story 2",
-      content: story.mini2,
-      sequence_order: 4,
-    },
-  ].filter((row) => (row.content || "").trim());
+const STORY_TYPE_MAP = [
+  { key: "teaser",    storyType: "teaser", title: "Card teaser"  },
+  { key: "mainStory", storyType: "main",   title: "Main story"   },
+  { key: "mini1",     storyType: "mini_1", title: "Mini story 1" },
+  { key: "mini2",     storyType: "mini_2", title: "Mini story 2" },
+];
+
+function buildStoryRows(story = {}, universeId) {
+  return STORY_TYPE_MAP
+    .map(({ key, storyType, title }) => {
+      const text = (story[key] || "").trim();
+      if (!text) return null;
+      return {
+        story_type: storyType,
+        title,
+        content: { text },
+        status: "published",
+        universe_id: universeId || null,
+      };
+    })
+    .filter(Boolean);
 }
 
 export async function saveAdminStory(client, dollId, story = {}) {
@@ -40,28 +30,86 @@ export async function saveAdminStory(client, dollId, story = {}) {
     throw new Error("A doll id is required.");
   }
 
-  const rows = buildStoryRows(dollId, story);
+  // Fetch doll's universe_id for the new stories records
+  const { data: doll, error: dollError } = await client
+    .from("dolls")
+    .select("universe_id")
+    .eq("id", dollId)
+    .single();
+  if (dollError) {
+    throw dollError;
+  }
+  const universeId = doll?.universe_id || null;
 
-  const deleteResult = await client.from("stories").delete().eq("doll_id", dollId);
-  if (deleteResult?.error) {
-    throw deleteResult.error;
+  // Read existing linked story IDs before clearing them
+  const { data: existingJunction, error: junctionReadError } = await client
+    .from("doll_stories")
+    .select("story_id")
+    .eq("doll_id", dollId);
+  if (junctionReadError) {
+    throw junctionReadError;
+  }
+  const existingStoryIds = (existingJunction || []).map((r) => r.story_id).filter(Boolean);
+
+  // Remove junction rows for this doll
+  const { error: junctionDeleteError } = await client
+    .from("doll_stories")
+    .delete()
+    .eq("doll_id", dollId);
+  if (junctionDeleteError) {
+    throw junctionDeleteError;
   }
 
+  // Remove the now-orphaned story records
+  if (existingStoryIds.length > 0) {
+    const { error: storiesDeleteError } = await client
+      .from("stories")
+      .delete()
+      .in("id", existingStoryIds);
+    if (storiesDeleteError) {
+      throw storiesDeleteError;
+    }
+  }
+
+  const rows = buildStoryRows(story, universeId);
+  let insertedStories = [];
+
   if (rows.length > 0) {
-    const insertResult = await client.from("stories").insert(rows);
-    if (insertResult?.error) {
-      throw insertResult.error;
+    const { data: inserted, error: insertError } = await client
+      .from("stories")
+      .insert(rows)
+      .select("id, story_type");
+    if (insertError) {
+      throw insertError;
+    }
+    insertedStories = inserted || [];
+  }
+
+  // Link new story records to this doll via the junction table
+  if (insertedStories.length > 0) {
+    const junctionRows = insertedStories.map((s) => ({
+      doll_id: dollId,
+      story_id: s.id,
+    }));
+    const { error: junctionInsertError } = await client
+      .from("doll_stories")
+      .insert(junctionRows);
+    if (junctionInsertError) {
+      throw junctionInsertError;
     }
   }
 
   const dollPatch = { status: "story" };
-  const updateResult = await client.from("dolls").update(dollPatch).eq("id", dollId);
-  if (updateResult?.error) {
-    throw updateResult.error;
+  const { error: updateError } = await client
+    .from("dolls")
+    .update(dollPatch)
+    .eq("id", dollId);
+  if (updateError) {
+    throw updateError;
   }
 
   return {
-    rows,
+    rows: insertedStories,
     dollPatch,
   };
 }

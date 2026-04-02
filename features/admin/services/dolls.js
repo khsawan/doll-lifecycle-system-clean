@@ -47,16 +47,18 @@ export async function fetchAdminDollDetailResources(client, dollId) {
 
   const [storiesResult, contentRowsResult, ordersResult] = await Promise.all([
     client
-      .from("stories")
-      .select("*")
-      .eq("doll_id", dollId)
-      .order("sequence_order", { ascending: true }),
+      .from("doll_stories")
+      .select("stories(id, story_type, title, content, status, universe_id)")
+      .eq("doll_id", dollId),
     client.from("content_assets").select("*").eq("doll_id", dollId),
     client.from("orders").select("*").eq("doll_id", dollId).limit(1),
   ]);
 
+  const rawStoryRows = storiesResult?.error ? [] : storiesResult?.data || [];
+  const stories = rawStoryRows.map((row) => row.stories).filter(Boolean);
+
   return {
-    stories: storiesResult?.error ? [] : storiesResult?.data || [],
+    stories,
     contentRows: contentRowsResult?.error ? [] : contentRowsResult?.data || [],
     orders: ordersResult?.error ? [] : ordersResult?.data || [],
   };
@@ -209,9 +211,31 @@ export async function deleteAdminDollPermanently(
     }
   }
 
-  const { error: storiesError } = await client.from("stories").delete().eq("doll_id", dollId);
-  if (storiesError) {
-    throw storiesError;
+  const { data: dollStoryRows, error: dollStoryReadError } = await client
+    .from("doll_stories")
+    .select("story_id")
+    .eq("doll_id", dollId);
+  if (dollStoryReadError) {
+    throw dollStoryReadError;
+  }
+  const linkedStoryIds = (dollStoryRows || []).map((r) => r.story_id).filter(Boolean);
+
+  const { error: junctionDeleteError } = await client
+    .from("doll_stories")
+    .delete()
+    .eq("doll_id", dollId);
+  if (junctionDeleteError) {
+    throw junctionDeleteError;
+  }
+
+  if (linkedStoryIds.length > 0) {
+    const { error: storiesError } = await client
+      .from("stories")
+      .delete()
+      .in("id", linkedStoryIds);
+    if (storiesError) {
+      throw storiesError;
+    }
   }
 
   const { error: contentError } = await client

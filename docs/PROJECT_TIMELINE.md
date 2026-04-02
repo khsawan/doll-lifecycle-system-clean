@@ -11,9 +11,9 @@
 
 | Status | Count |
 |---|---|
-| ✅ Done | 15 |
+| ✅ Done | 16 |
 | 🔄 In Progress | 1 |
-| 📋 Planned | 14 |
+| 📋 Planned | 13 |
 | ⏸ Blocked | 3 |
 
 ---
@@ -43,7 +43,7 @@
 | Phase U2 — universe AI injection | ✅ Done | W6 | Real universe data injected into all AI generation prompts |
 | Phase CB1 — character brief fields | ✅ Done | W7 | Character stage panel cleaned up — redundant fields hidden, guidance text added to all fields, layout reordered |
 | Phase CB2 — character brief generator | ✅ Done | W7 | Character brief generator — AI task, prompt builder, normalization, Generate Brief button |
-| Phase SL1 — story library model | 📋 Planned | W8 | Universe-linked stories + migration |
+| Phase SL1 — story library model | ✅ Done | W8 | Story library data model — universe-linked stories table, doll_stories junction, service layer updated |
 | Phase SL2 — story builder UI | 📋 Planned | W9–W10 | Template + elements + AI assist + publish |
 | Phase AL1 — activity library | 📋 Planned | W11 | 4 activity types + public Activities scene |
 | Phase PP1 — physical production | 📋 Planned | W12 | Production orders + quality gate + check-in |

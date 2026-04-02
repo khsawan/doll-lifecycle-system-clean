@@ -77,15 +77,18 @@ export function buildIdentityEditorState(doll, activeGeneratedV1Content) {
 }
 
 export function buildStoryEditorState(stories = [], activeGeneratedV1Content) {
-  const teaser = stories.find((row) => row.type === "teaser")?.content || "";
-  const mainStory = stories.find((row) => row.type === "main")?.content || "";
-  const minis = stories.filter((row) => row.type === "mini");
+  function readText(storyType) {
+    const row = stories.find((s) => s.story_type === storyType);
+    if (!row) return "";
+    // content is JSONB { text: "..." }
+    return typeof row.content?.text === "string" ? row.content.text : "";
+  }
 
   const persistedStory = {
-    teaser,
-    mainStory,
-    mini1: minis[0]?.content || "",
-    mini2: minis[1]?.content || "",
+    teaser:    readText("teaser"),
+    mainStory: readText("main"),
+    mini1:     readText("mini_1"),
+    mini2:     readText("mini_2"),
   };
 
   return {
