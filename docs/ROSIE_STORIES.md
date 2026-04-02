@@ -87,7 +87,100 @@ Everything feels right again.
 ---
 
 ## STORY 2 — WHAT DOES THE FARM NEED TODAY?
-*(Coming — Choice story)*
+**Type:** Choice — 3 paths, shared ending
+**Emotional arc:** The farm needs something. The child knows what. Every choice is right.
+**Ending feeling:** Someone was thinking of me.
+
+---
+
+**Opening**
+
+The morning is settled now. The light is warm and low.
+
+Rosie stands at the barn door, looking out at the farm.
+She turns toward you.
+
+"The farm needs a little something this morning," she says.
+"I think you already know what it is."
+
+*What does the farm need today?*
+
+---
+
+**Choice A — The animals are hungry**
+
+*Beat 1:*
+Rosie takes the basket from its hook by the door.
+She hands it to you — it is lighter than you expected.
+
+Together you move through the barn.
+Each animal waits quietly.
+Not impatiently. Just ready.
+As if they knew you were coming.
+
+*Beat 2:*
+Bramble is last.
+He eats slowly, and keeps looking up between bites.
+
+Rosie watches him. Then she looks at you.
+"He always waits to see who's bringing it," she says.
+"Today it was you."
+
+---
+
+**Choice B — The barn needs tidying**
+
+*Beat 1:*
+The hay has shifted in the night.
+Small things have moved from where they belong.
+
+Rosie picks up one thing, then another.
+You watch where her hands go.
+Soon your hands begin to follow.
+
+*Beat 2:*
+When it is done, the barn is the same as it always is.
+That is the point.
+
+"Some things like going back where they belong," Rosie says.
+
+---
+
+**Choice C — Someone needs company**
+
+*Beat 1:*
+Rosie leads you to the corner where Willow stands.
+The big, slow, certain cow.
+The air near her is different — stiller, warmer.
+
+You sit on the hay beside her.
+You do not need to do anything.
+
+*Beat 2:*
+After a while, Pip — the small calf — comes closer.
+Not all the way. Just a little closer than before.
+
+Rosie sits beside you.
+Neither of you says anything.
+That is enough.
+
+---
+
+**Shared ending**
+
+The farm is quiet again.
+The morning has done what mornings do.
+
+Rosie looks at you.
+
+"You knew exactly what it needed," she says.
+"I had a feeling you would."
+
+The light stays warm.
+The farm stays still.
+And somewhere near the gate, a bell rings — very softly — just once.
+
+---
 
 ## STORY 3 — ROSIE NEEDS YOU
 *(Coming — Do-Together story)*
