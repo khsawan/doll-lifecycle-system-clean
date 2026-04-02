@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useAdminBriefGenerator } from "../hooks/useAdminBriefGenerator";
 import { saveAdminDollUniverseAssignmentViaApi } from "../services/dollApi";
 import { fetchAdminUniverses } from "../services/universeApi";
 
@@ -121,6 +122,7 @@ export function AdminCharacterPanel({
   styles,
 }) {
   const universe = useUniverseSection(identity);
+  const briefGenerator = useAdminBriefGenerator({ identity, setIdentity });
 
   return (
     <div style={departmentStackStyle}>
@@ -202,6 +204,26 @@ export function AdminCharacterPanel({
           />
           <CharCounter value={identity.character_world} max={400} noColor />
         </div>
+
+        {isEditable && (
+          <div style={generateBriefRowStyle}>
+            <button
+              type="button"
+              onClick={briefGenerator.generateBrief}
+              disabled={briefGenerator.generating}
+              style={
+                briefGenerator.generating
+                  ? { ...generateBriefButtonStyle, opacity: 0.6, cursor: "not-allowed" }
+                  : generateBriefButtonStyle
+              }
+            >
+              {briefGenerator.generating ? "Generating…" : "✦ Generate Brief"}
+            </button>
+            {briefGenerator.briefError ? (
+              <div style={generateBriefErrorStyle}>{briefGenerator.briefError}</div>
+            ) : null}
+          </div>
+        )}
 
         <div style={briefSectionStyle}>
           <div style={briefSectionLabelStyle}>Character Brief</div>
@@ -501,4 +523,30 @@ const charCounterStyle = {
   textAlign: "right",
   marginTop: 4,
   color: "#94a3b8",
+};
+
+const generateBriefRowStyle = {
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "flex-start",
+  gap: 6,
+};
+
+const generateBriefButtonStyle = {
+  background: "#f1f5f9",
+  color: "#0f172a",
+  border: "1px solid #e2e8f0",
+  borderRadius: 16,
+  padding: "10px 16px",
+  fontSize: 14,
+  cursor: "pointer",
+};
+
+const generateBriefErrorStyle = {
+  padding: "6px 10px",
+  borderRadius: 10,
+  fontSize: 12,
+  background: "#fef2f2",
+  border: "1px solid #fecaca",
+  color: "#991b1b",
 };

@@ -1,7 +1,7 @@
 # PROJECT TIMELINE
 ## Maille et Merveille — Doll Lifecycle System
 
-**Last updated:** 1 April 2026
+**Last updated:** 2 April 2026
 **How to use:** Update status and notes as each phase completes.
 **Statuses:** ✅ Done | 🔄 In Progress | 📋 Planned | ⏸ Blocked
 
@@ -11,9 +11,9 @@
 
 | Status | Count |
 |---|---|
-| ✅ Done | 14 |
+| ✅ Done | 15 |
 | 🔄 In Progress | 1 |
-| 📋 Planned | 15 |
+| 📋 Planned | 14 |
 | ⏸ Blocked | 3 |
 
 ---
@@ -42,7 +42,7 @@
 | Phase U1 — universe data model | ✅ Done | W6 | Universe table, seed data, admin UI, doll assignment, AI injection complete |
 | Phase U2 — universe AI injection | ✅ Done | W6 | Real universe data injected into all AI generation prompts |
 | Phase CB1 — character brief fields | ✅ Done | W7 | Character stage panel cleaned up — redundant fields hidden, guidance text added to all fields, layout reordered |
-| Phase CB2 — character brief generator | 📋 Planned | W7 | New AI task: character_brief |
+| Phase CB2 — character brief generator | ✅ Done | W7 | Character brief generator — AI task, prompt builder, normalization, Generate Brief button |
 | Phase SL1 — story library model | 📋 Planned | W8 | Universe-linked stories + migration |
 | Phase SL2 — story builder UI | 📋 Planned | W9–W10 | Template + elements + AI assist + publish |
 | Phase AL1 — activity library | 📋 Planned | W11 | 4 activity types + public Activities scene |
