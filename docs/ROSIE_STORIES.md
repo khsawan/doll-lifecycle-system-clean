@@ -183,4 +183,75 @@ And somewhere near the gate, a bell rings — very softly — just once.
 ---
 
 ## STORY 3 — ROSIE NEEDS YOU
-*(Coming — Do-Together story)*
+**Type:** Do-Together — 4 pages, child and physical doll
+**Emotional arc:** Rosie has cared for everyone. Now the child cares for Rosie.
+**Ending feeling:** I am the one who makes her feel safe.
+
+---
+
+**Page 1**
+
+Rosie has been up since before the light came.
+
+She checked on Bramble.
+She made sure the gate was closed.
+She walked the paths of the farm.
+One end to the other.
+
+Now it is later. The morning is full.
+
+And Rosie is a little tired.
+
+Not in a sad way.
+In the way your body feels when the morning is full.
+
+"I think I need to rest for a moment," she says.
+
+Maybe you can find her a warm place to sit.
+
+---
+
+**Page 2**
+
+Good. She looks comfortable there.
+
+She has been walking for a long time.
+
+She does not ask for much.
+But right now, she would like someone nearby.
+
+You can hold her — gently — for a little while.
+
+---
+
+**Page 3**
+
+She is quieter now.
+
+Rosie spends all her days noticing everyone else.
+The smallest lamb. The tired hens. The gate that needs checking.
+
+She does not say it.
+But she is listening.
+
+You can tell her — quietly, just for her — that you are glad she is here.
+
+---
+
+**Page 4**
+
+Rosie is still.
+
+Something has settled in her.
+You can feel it.
+
+She looks at you — the way she always looks at you —
+as if you are exactly the person she was hoping would come.
+
+"Thank you," she says.
+"I was hoping it would be you."
+
+The farm is warm.
+The morning is still.
+And Rosie stays —
+right here, with you.

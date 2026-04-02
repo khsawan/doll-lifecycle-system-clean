@@ -495,6 +495,8 @@ What moment in her corner of the farm reveals who she is?
 
 ## PART 9 — WHAT DOES NOT BELONG IN FARM WORLD
 
+The child is never instructed. The child is gently allowed.
+
 These are absolute. No exception.
 
 - Nothing urban, modern, or technological
@@ -507,6 +509,7 @@ These are absolute. No exception.
 - No colour that feels synthetic, bright, or newly introduced
 - No object that is displayed rather than used
 - No time progression that asks the child to keep up
+- No instruction directed at the child — only invitation and space
 
 ---
 
