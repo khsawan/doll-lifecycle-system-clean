@@ -101,7 +101,7 @@ export const BLUEPRINT_STATE = {
         {
           id: "r0",
           name: "R0 Creative foundation",
-          status: "in-progress",
+          status: "done",
           weeks: "W8",
           weekStart: 7,
           weekEnd: 8,
