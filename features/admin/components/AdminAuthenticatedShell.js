@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { PIPELINE_STAGE_LABELS } from "../../../lib/pipelineState";
 import { STORY_TONES } from "../constants/content";
 import { PRODUCTION_STAGES } from "../constants/workflow";
@@ -17,6 +18,7 @@ import {
   statusLabel,
 } from "../domain/workflow";
 import { AdminAppShell } from "./AdminAppShell";
+import { AdminBlueprintPage } from "./AdminBlueprintPage";
 import { AdminCharacterPanel } from "./AdminCharacterPanel";
 import { AdminCommercePanel } from "./AdminCommercePanel";
 import { AdminContentPackEditorPanel } from "./AdminContentPackEditorPanel";
@@ -232,6 +234,7 @@ import {
 } from "../styles/detailPanels";
 
 export function AdminAuthenticatedShell({ state }) {
+  const [showBlueprint, setShowBlueprint] = useState(false);
   const {
     auth,
     catalog,
@@ -891,12 +894,17 @@ export function AdminAuthenticatedShell({ state }) {
         <AdminPageHeader
           adminProtectionEnabled={auth.adminProtectionEnabled}
           onLogout={auth.handleLogout}
+          onBlueprint={() => setShowBlueprint(true)}
           secondaryButton={secondaryButton}
         />
       }
-      operationsBoard={operationsBoardContent}
-      navigator={navigatorSidebarContent}
-      workspacePanel={selectedWorkspacePanelContent}
+      operationsBoard={showBlueprint ? null : operationsBoardContent}
+      navigator={showBlueprint ? null : navigatorSidebarContent}
+      workspacePanel={
+        showBlueprint
+          ? <AdminBlueprintPage onClose={() => setShowBlueprint(false)} />
+          : selectedWorkspacePanelContent
+      }
       modal={actionWarningModal}
     />
   );

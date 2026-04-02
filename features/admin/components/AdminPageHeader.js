@@ -31,7 +31,7 @@ const subtitleStyle = {
   marginTop: 12,
 };
 
-export function AdminPageHeader({ adminProtectionEnabled, onLogout, secondaryButton }) {
+export function AdminPageHeader({ adminProtectionEnabled, onLogout, onBlueprint, secondaryButton }) {
   return (
     <>
       <div style={rowStyle}>
@@ -53,6 +53,9 @@ export function AdminPageHeader({ adminProtectionEnabled, onLogout, secondaryBut
           >
             Settings
           </Link>
+          <button onClick={onBlueprint} style={secondaryButton}>
+            Blueprint
+          </button>
           {adminProtectionEnabled ? (
             <button onClick={onLogout} style={secondaryButton}>
               Logout
