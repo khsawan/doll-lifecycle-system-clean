@@ -124,7 +124,7 @@ const screenStyle = {
 };
 
 const containerStyle = {
-  maxWidth: 1040,
+  maxWidth: 1280,
   margin: "0 auto",
 };
 

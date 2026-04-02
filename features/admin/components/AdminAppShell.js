@@ -7,13 +7,17 @@ export function AdminAppShell({
   workspacePanel,
   modal,
 }) {
+  const gridStyle = navigator
+    ? workspaceGridStyle
+    : { ...workspaceGridStyle, gridTemplateColumns: "1fr" };
+
   return (
     <main style={mainStyle}>
       <div style={innerStyle}>
         {header}
         {operationsBoard}
 
-        <div style={workspaceGridStyle}>
+        <div style={gridStyle}>
           {navigator}
           {workspacePanel}
         </div>
@@ -108,7 +112,7 @@ const mainStyle = {
 };
 
 const innerStyle = {
-  maxWidth: 1320,
+  maxWidth: 1280,
   margin: "0 auto",
 };
 
